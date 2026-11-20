@@ -107,7 +107,7 @@ export function scaleMap(map, n) {
 }
 // friends-room lounge: small, fully fenced, a training sandbag in the middle
 export const LOUNGE = { id: 'lounge', name: 'Jelly Lounge', R: 7.2, top: '#fff1f8', tile: '#ffd9ec', rim: '#5a2a7a', side: '#c08aff', layer: '#9be7ff', sea: '#7a5aff',
-  pieces: [{ kind: 'gumdrop', x: -4.6, z: -3.2, r: 0.6, color: '#7ad0ff' }, { kind: 'gumdrop', x: 4.6, z: -3.2, r: 0.6, color: '#ffc93c' }], pads: [{ x: 0, z: 4.4 }], fences: [[0, 2 * Math.PI]] };
+  pieces: [{ kind: 'gumdrop', x: -4.6, z: -3.2, r: 0.6, color: '#7ad0ff' }, { kind: 'gumdrop', x: 4.6, z: -3.2, r: 0.6, color: '#ffc93c' }], pads: [], fences: [[0, 2 * Math.PI]] };
 export function buildColliders(map) {
   const circles = [], boxes = [];
   for (const p of map.pieces) {

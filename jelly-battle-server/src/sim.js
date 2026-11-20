@@ -59,6 +59,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   if (o.armorT > 0) stun = 0;
   o.stun = Math.max(o.stun, Math.min(stun, 0.2)); if (k > 11 && !(o.armorT > 0)) o.atkT = -1;   // only big hits interrupt your swing
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
+  if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
   s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit });
   if (o.hp <= 0) {
     o.alive = false; o.hp = 0;
@@ -87,7 +88,7 @@ function castSkill(s, b) {
   else if (id === 'boba') { b.bobaT = 1.5; b.bobaShot = 0; b.bobaA = b.face; }
   else if (id === 'nova') { b.vy = 14.5; b.air = true; b.nova = true; b.novaDive = false; b.vx *= 0.25; b.vz *= 0.25; b.inv = 1.4; s.events.push({ type: 'novaRise', b: b.id, x: b.x, z: b.z }); }
   else if (id === 'blackhole') { const d = b.aimD ? Math.max(1.6, Math.min(5.5, b.aimD)) : 2.8; s.vortex.push({ owner: b.id, x: b.x + fx * d, z: b.z + fz * d, t: 0, life: 1.7, m }); s.events.push({ type: 'vortex', b: b.id, x: b.x + fx * d, z: b.z + fz * d }); }
-  else if (id === 'rage') { b.buff.power = 4.5; b.buff.speed = 4.5; b.buff.giant = 4.5; b.hp = Math.min(C.HP, b.hp + 8); }
+  else if (id === 'rage') { b.buff.power = 4; b.buff.speed = 4; b.buff.giant = 4; b.hp = Math.min(C.HP, b.hp + 8); }
 }
 
 function inBox(b, x, z, pad) { return Math.abs(x - b.x) < b.hw + pad && Math.abs(z - b.z) < b.hd + pad; }

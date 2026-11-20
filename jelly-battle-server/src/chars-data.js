@@ -24,7 +24,7 @@ export const CHARS = [
   { id: 'cola', name: 'Coco', title: 'The Wild Fizz', rarity: 'epic', shape: [0.72, 0.90, 0.70], face: 'grin',
     skill: { id: 'geyser', name: 'Cola Geyser', desc: 'ERUPT! Blasts everyone nearby far away.', charge: 100 } },
   { id: 'rainbow', name: 'Prisma', title: 'The Legend', rarity: 'legendary', shape: [0.74, 0.86, 0.72], face: 'star',
-    skill: { id: 'rage', name: 'Rainbow Rage', desc: 'Become giant, fast and powerful for 6 seconds.', charge: 120 } },
+    skill: { id: 'rage', name: 'Rainbow Rage', desc: 'Become giant, fast and powerful for 4 seconds.', charge: 130 } },
   { id: 'mochi', name: 'Mochi', title: 'The Bouncy Buddy', rarity: 'rare', shape: [0.80, 0.74, 0.78], face: 'dreamy',
     skill: { id: 'bounce', name: 'Mochi Hop', desc: 'Three big bounces forward, each landing squishes everyone nearby.', charge: 95 } },
   { id: 'pudding', name: 'Pud', title: 'The Wobbly Chef', rarity: 'epic', shape: [0.78, 0.80, 0.76], face: 'cat',
