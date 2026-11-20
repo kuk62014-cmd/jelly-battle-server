@@ -44,18 +44,18 @@ function startMatch(r) {
 function startRound(r) {
   r.round++; const players = r.seats.map((s) => ({ id: s.id, name: s.name, skin: s.skin, char: s.char, weapon: s.weapon, isMe: false, human: !!s.human }));
   const keep = r.sim && r.round > 1 ? Object.fromEntries(r.sim.blobs.map((b) => [b.id, b.sk])) : null;
-  r.sim = createSim(players, r.map); for (const b of r.sim.blobs) b.sk = keep ? Math.max(30, keep[b.id] ?? 30) : 100;
+  r.sim = createSim(players, r.map); for (const b of r.sim.blobs) b.sk = 100;
   r.phase = 'intro'; r.t = r.round === 1 ? 3.6 : 1.8;
   for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'intro', round: r.round, cd: r.t });
 }
-const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT'];
+const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT'];
 const r2 = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 function uid(o) { if (!o.uid) o.uid = uidN++; return o.uid; }
 function snapshot(r, k) {
   const s = r.sim, sw = (id) => (id == null ? id : swapId(id, k));
   const blobs = s.blobs.map((b) => { const o = {}; for (const f of PICK) o[f] = r2(b[f]); o.id = sw(b.id); o.lastHitBy = sw(b.lastHitBy); o.buff = { speed: r2(b.buff.speed), power: r2(b.buff.power), giant: r2(b.buff.giant) }; o.mx = r2(b.input.mx); o.dive = !!b.dive; return o; });
   const sub = (arr, f) => (arr || []).map((o) => { const x = { uid: uid(o) }; for (const k2 of f) x[k2] = r2(o[k2]); if (o.owner != null) x.owner = sw(o.owner); return x; });
-  return { t: 's', st: r2(s.t), sudden: s.sudden, sweepA: r2(s.sweepA), blobs,
+  return { t: 's', st: r2(s.t), sudden: s.sudden, R: r2(s.R), sweepA: r2(s.sweepA), blobs,
     proj: (s.proj || []).map((p) => ({ uid: uid(p), x: r2(p.x), y: r2(p.y), z: r2(p.z), vx: r2(p.vx), vz: r2(p.vz), lob: p.lob, boom: p.boom, w: p.w.id, owner: sw(p.owner) })),
     rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life']), vortex: sub(s.vortex, ['x', 'z', 't', 'life']),
     gifts: sub(s.gifts, ['id', 'x', 'z', 'kind', 'y', 't']),
@@ -77,7 +77,8 @@ function tickRoom(r, dt) {
       if (champ || r.round >= MAX_ROUNDS) endMatch(r); else startRound(r);
     }
   }
-  for (const seat of r.seats) if (seat.human && seat.human.ws.readyState === 1) seat.human.ws.send(JSON.stringify(snapshot(r, seat.id)));
+  r.snapN = (r.snapN || 0) + 1; const humans = r.seats.filter((x) => x.human).length;
+  if (humans <= 4 || r.snapN % 2 === 0 || s.events.length) for (const seat of r.seats) if (seat.human && seat.human.ws.readyState === 1 && seat.human.ws.bufferedAmount < 64000) seat.human.ws.send(JSON.stringify(snapshot(r, seat.id)));
 }
 function endMatch(r) {
   r.phase = 'done';
@@ -136,6 +137,11 @@ wss.on('connection', (ws) => {
     else if (m.t === 'emote') { const r = c.room, st = r?.seats.find((x) => x.human === c); const e = String(m.e || '').slice(0, 12); if (!st || (c.lastEmote && Date.now() - c.lastEmote < 600)) return; c.lastEmote = Date.now(); for (const o of r.seats) if (o.human) send(o.human, { t: 'emote', id: swapId(st.id, o.id), e }); }
     else if (m.t === 'startPrivate') { const r = c.room; if (r?.priv && r.phase === 'lobby' && r.seats[0]?.human === c && r.seats.length >= 2 && r.seats.every((x) => x.id === 0 || x.ready)) startMatch(r); }
     else if (m.t === 'in') { const now = Date.now(); if (now - c.lastIn < 15) return; c.lastIn = now; c.inp = { mx: +m.mx || 0, mz: +m.mz || 0, atk: !!m.atk, skill: !!m.skill, jump: !!m.jump, aim: !!m.aim, ax: +m.ax || 0, az: +m.az || 0, ad: Math.min(20, +m.ad || 0) }; }
+    else if (m.t === 'ping') send(c, { t: 'pong', c: +m.c || 0 });
+    // lounge (friends-room lobby): each client owns its own jelly; the server just relays positions and hits
+    else if (m.t === 'lpos' || m.t === 'lhit') { const r = c.room, st = r?.seats.find((x) => x.human === c); if (!st || r.phase !== 'lobby' || !r.priv) return; const now = Date.now();
+      if (m.t === 'lpos') { if (now - (c.lastLp || 0) < 40) return; c.lastLp = now; const o = { t: 'lpos', x: +m.x || 0, z: +m.z || 0, y: +m.y || 0, f: +m.f || 0, a: m.a | 0, hp: +m.hp || 0 }; for (const q of r.seats) if (q.human && q.human !== c) send(q.human, { ...o, id: swapId(st.id, q.id) }); }
+      else { if (now - (c.lastLh || 0) < 120) return; c.lastLh = now; const tg = r.seats.find((x) => x.id === swapId(m.id | 0, st.id) && x.human && x.human !== c); if (tg) send(tg.human, { t: 'lhit', from: swapId(st.id, tg.id), dx: Math.max(-1, Math.min(1, +m.dx || 0)), dz: Math.max(-1, Math.min(1, +m.dz || 0)), dmg: Math.min(60, Math.max(0, +m.dmg || 0)), kb: Math.min(20, Math.max(0, +m.kb || 0)) }); } }
     else if (m.t === 'leave') leave(c);
   });
   ws.on('close', () => { leave(c); clients.delete(c); });

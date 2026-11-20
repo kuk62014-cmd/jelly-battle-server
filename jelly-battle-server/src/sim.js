@@ -17,10 +17,10 @@ export function createSim(players, map) {
     blobs: players.map((p, i) => {
       const a = (i / n) * Math.PI * 2 + Math.PI / 4;
       const r = map.R * 0.62;
+      // spawn on the ring, but slide sideways / inward until clear of every structure (never inside a cone or tower)
+      const blocked = (x, z) => col.circles.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.05) || col.boxes.some((b) => Math.abs(x - b.x) < b.hw + 1.05 && Math.abs(z - b.z) < b.hd + 1.05);
       let x = Math.cos(a) * r, z = Math.sin(a) * r;
-      const hitsC = col.circles.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1);
-      const hitsB = col.boxes.some((b) => Math.abs(x - b.x) < b.hw + 1 && Math.abs(z - b.z) < b.hd + 1);
-      if (hitsC || hitsB) { x *= 0.85; z *= 0.85; }
+      if (blocked(x, z)) { let found = false; for (const rr of [r, r * 0.9, r * 1.08, r * 0.8]) { for (const da of [0.28, -0.28, 0.5, -0.5, 0.75, -0.75]) { const tx = Math.cos(a + da) * rr, tz = Math.sin(a + da) * rr; if (!blocked(tx, tz)) { x = tx; z = tz; found = true; break; } } if (found) break; } }
       return {
         id: p.id, idx: i, human: !!(p.isMe || p.human), dummy: !!p.dummy, x, z, vx: 0, vz: 0, y: 0, vy: 0, r: C.R_BODY,
         face: Math.atan2(-x, -z), hp: C.HP, alive: true, falling: false, air: false,
@@ -57,7 +57,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.vx = o.vx * 0.2 + (dx / l) * k * fair * tk; o.vz = o.vz * 0.2 + (dz / l) * k * fair * tk;
   if (k > 11) { o.vy = 3.5; o.air = true; }
   if (o.armorT > 0) stun = 0;
-  o.stun = Math.max(o.stun, Math.min(stun, 0.2)); if (k > 11 && !(o.armorT > 0)) o.atkT = -1;   // only big hits interrupt your swing
+  o.stun = Math.max(o.stun, Math.min(stun, 0.2));   // getting knocked back never cancels a swing you already started
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
   if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
   s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit });
@@ -78,7 +78,7 @@ function castSkill(s, b) {
   b.sk = 0; b.skillT = 0.6; b.armorT = id === 'rush' ? 0.7 : 0.9;   // brief super-armor so skills don't get interrupted
   s.events.push({ type: 'skill', b: b.id, id, x: b.x, z: b.z });
   if (id === 'rush') { b.rushT = 0.38; b.rushHit = new Set(); b.vx = fx * 19; b.vz = fz * 19; b.inv = 0.38; }
-  else if (id === 'sour') { aoe(s, b, 3.0, 15 * m, 6, 0.3, 'skill', (o) => (o.slowT = 3)); }
+  else if (id === 'sour') { aoe(s, b, 3.2, 13 * m, 6, 0.3, 'skill', (o) => { o.slowT = 3; o.acidT = 3.2; o.acidTick = 0.4; o.acidDmg = 4.2 * m; o.acidBy = b.id; s.events.push({ type: 'acidOn', b: o.id, x: o.x, z: o.z }); }); }
   else if (id === 'fizz') { b.vy = 12; b.air = true; b.fizz = true; b.vx *= 0.3; b.vz *= 0.3; }
   else if (id === 'shield') { b.shieldT = 3.5; }
   else if (id === 'grapeshot') { for (let i = -4; i <= 4; i++) { const a = b.face + i * 0.17; s.proj.push({ owner: b.id, x: b.x + Math.sin(a) * (b.r + 0.3), z: b.z + Math.cos(a) * (b.r + 0.3), y: 0.65, vx: Math.sin(a) * 16, vz: Math.cos(a) * 16, vy: 0, life: 0.55, w: { ...GRAPE, dmg: GRAPE.dmg * m }, lob: false, alive: true }); } }
@@ -87,7 +87,7 @@ function castSkill(s, b) {
   else if (id === 'caramel') { s.zones.push({ owner: b.id, x: b.x + fx * 1.2, z: b.z + fz * 1.2, r: 2.6, t: 0, life: 3.2, tick: 0, m }); s.events.push({ type: 'caramel', b: b.id, x: b.x + fx * 1.2, z: b.z + fz * 1.2, r: 2.6 }); }
   else if (id === 'boba') { b.bobaT = 1.5; b.bobaShot = 0; b.bobaA = b.face; }
   else if (id === 'nova') { b.vy = 14.5; b.air = true; b.nova = true; b.novaDive = false; b.vx *= 0.25; b.vz *= 0.25; b.inv = 1.4; s.events.push({ type: 'novaRise', b: b.id, x: b.x, z: b.z }); }
-  else if (id === 'blackhole') { const d = b.aimD ? Math.max(1.6, Math.min(5.5, b.aimD)) : 2.8; s.vortex.push({ owner: b.id, x: b.x + fx * d, z: b.z + fz * d, t: 0, life: 1.7, m }); s.events.push({ type: 'vortex', b: b.id, x: b.x + fx * d, z: b.z + fz * d }); }
+  else if (id === 'blackhole') { const d = b.aimD ? Math.max(1.6, Math.min(5.5, b.aimD)) : 2.8; s.vortex.push({ owner: b.id, x: b.x + fx * d, z: b.z + fz * d, t: 0, life: 1.9, m }); s.events.push({ type: 'vortex', b: b.id, x: b.x + fx * d, z: b.z + fz * d }); }
   else if (id === 'rage') { b.buff.power = 4; b.buff.speed = 4; b.buff.giant = 4; b.hp = Math.min(C.HP, b.hp + 8); }
 }
 
@@ -128,6 +128,7 @@ export function blockedLine(s, x0, z0, x1, z1) {
   return false;
 }
 
+const vOK = (a, o, lim = 1.05) => Math.abs((o.y || 0) - (a.y || 0)) < lim;
 function fire(s, b) {
   const wm = RARITY[b.w.rarity || 'common'].mul * 0.5 + 0.5;
   const w = { ...b.w, dmg: b.w.dmg * wm }, fx = Math.sin(b.face), fz = Math.cos(b.face);
@@ -163,16 +164,17 @@ function fire(s, b) {
     s.events.push({ type: 'impact', b: b.id, x: cx, z: cz, r: w.aoe * gs });
     for (const o of live) {
       const d = Math.hypot(o.x - cx, o.z - cz);
-      if (d < w.aoe * gs + o.r) damage(s, b, o, w.dmg, o.x - b.x, o.z - b.z, w.kb, w.stun, 'slam');
+      if (d < w.aoe * gs + o.r && vOK(b, o, 1.25)) damage(s, b, o, w.dmg * (1 + 0.25 * Math.max(0, 1 - d / (w.aoe * gs + o.r))), o.x - b.x, o.z - b.z, w.kb, w.stun, 'slam');   // dead-centre slams hit hardest
     }
   } else if (w.type === 'swing') {
     let any = false;
     for (const o of live) {
       const dx = o.x - b.x, dz = o.z - b.z, d = Math.hypot(dx, dz) || 1e-3;
-      if (d > b.r + w.reach * gs + o.r) continue;
+      if (d > b.r + w.reach * gs + o.r || !vOK(b, o)) continue;
       const ang = Math.acos(Math.max(-1, Math.min(1, (dx * fx + dz * fz) / d)));
       if (ang > w.arc && d > b.r + o.r + 0.15) continue;
-      damage(s, b, o, w.dmg, dx * 0.7 + fx * 0.3 * d, dz * 0.7 + fz * 0.3 * d, w.kb, w.stun, 'swing'); any = true;
+      const close = 1 + 0.28 * Math.max(0, 1 - (d - b.r - o.r) / (w.reach * gs));   // point-blank swings hurt more
+      damage(s, b, o, w.dmg * close, dx * 0.7 + fx * 0.3 * d, dz * 0.7 + fz * 0.3 * d, w.kb, w.stun, 'swing'); any = true;
     }
     if (w.id === 'scythe') {   // the scythe also throws a piercing stardust crescent
       s.proj.push({ owner: b.id, x: b.x + fx * (b.r + 0.6), z: b.z + fz * (b.r + 0.6), y: 0.7, vx: fx * 12, vz: fz * 12, vy: 0, life: 0.42, w: { id: 'crescent', dmg: 8 * wm, kb: 6, stun: 0.1 }, lob: false, pierce: true, hit: new Set(), alive: true });
@@ -183,10 +185,10 @@ function fire(s, b) {
     for (const o of live) {
       const dx = o.x - b.x, dz = o.z - b.z;
       const along = dx * fx + dz * fz, perp = Math.abs(dx * fz - dz * fx);
-      if (along > 0 && along < b.r + w.reach * gs + o.r && perp < o.r + 0.45) damage(s, b, o, w.dmg, fx, fz, w.kb, w.stun, 'thrust');
+      if (along > 0 && along < b.r + w.reach * gs + o.r && perp < o.r + 0.45 && vOK(b, o)) damage(s, b, o, w.dmg * (1 + 0.22 * Math.max(0, 1 - (along - b.r - o.r) / (w.reach * gs))), fx, fz, w.kb, w.stun, 'thrust');
     }
   } else {
-    const shots = w.type === 'spread' ? [-0.22, 0, 0.22] : [0];
+    const shots = w.type === 'spread' ? [-0.26, -0.13, 0, 0.13, 0.26] : [0], sid = Math.random(), hy = (b.y || 0) + 0.65;
     const kick = w.type === 'rocket' ? 3.2 : w.type === 'spread' ? 2.2 : 0.7; b.vx -= fx * kick; b.vz -= fz * kick;   // recoil
     for (const off of shots) {
       const a = b.face + off, dx = Math.sin(a), dz = Math.cos(a);
@@ -195,8 +197,8 @@ function fire(s, b) {
       const ad = Math.max(2, Math.min(w.range, b.input.ad || w.range));
       const T = 0.8, hs = lob ? ad / T : w.speed;
       s.proj.push({
-        owner: b.id, x: b.x + dx * (b.r + 0.3), z: b.z + dz * (b.r + 0.3), y: lob ? 1.2 : 0.65,
-        vx: dx * hs, vz: dz * hs, vy: lob ? 0.5 * 16 * T - 1.2 / T : 0, life: lob ? 5 : w.range / w.speed, w, lob, boom: w.type === 'rocket', alive: true,
+        owner: b.id, x: b.x + dx * (b.r + 0.3), z: b.z + dz * (b.r + 0.3), y: lob ? 1.2 + (b.y || 0) : hy, sid,
+        vx: dx * hs, vz: dz * hs, vy: lob ? 0.5 * 16 * T - (1.2 + (b.y || 0)) / T : 0, life: lob ? 5 : w.range / w.speed, w, lob, boom: w.type === 'rocket', alive: true,
       });
     }
     s.events.push({ type: 'shot', b: b.id, id: w.id, x: b.x + fx * (b.r + 0.35), z: b.z + fz * (b.r + 0.35), face: b.face });
@@ -222,6 +224,14 @@ export function step(s, dt) {
   if (s.over) return;
   s.t += dt;
   if (!s.sudden && s.t >= C.SUDDEN) { s.sudden = true; s.events.push({ type: 'sudden' }); }
+  // sudden death: the cake shrinks toward the middle; fences tumble off first, then any structure the edge reaches slides into the sea
+  if (s.sudden && !s.map.noShrink) {
+    const k = Math.min(1, (s.t - C.SUDDEN) / 22), R0 = s.map.R, R1 = Math.max(5.6, R0 * 0.55);
+    s.R = R0 + (R1 - R0) * (k * k * (3 - 2 * k));
+    if (!s.fenceGone) { s.fenceGone = true; s.col.circles = s.col.circles.filter((c) => !c.post); s.events.push({ type: 'fenceDrop' }); }
+    const out = (c) => Math.hypot(c.x, c.z) + (c.r || Math.max(c.hw || 0, c.hd || 0)) * 0.4 > s.R - 0.15;
+    for (const list of [s.col.circles, s.col.boxes]) for (let i = list.length - 1; i >= 0; i--) if (list[i].pi != null && out(list[i])) { s.events.push({ type: 'pieceFall', pi: list[i].pi }); list.splice(i, 1); }
+  }
   const live = s.blobs.filter((b) => b.alive);
   // overtime: the sugar rush drains everyone so rounds always end
   if (s.t > C.SUDDEN + 25) for (const b of live) if (!b.falling) { b.hp -= 3 * dt; if (b.hp <= 0 && b.alive) { b.alive = false; s.events.push({ type: 'splat', b: b.id, by: null, x: b.x, z: b.z }); } }
@@ -230,6 +240,11 @@ export function step(s, dt) {
     for (const k in b.buff) b.buff[k] = Math.max(0, b.buff[k] - dt);
     b.r = C.R_BODY * (b.buff.giant > 0 ? 1.35 : 1);
     b.atkCd -= dt; b.dashCd -= dt; b.stun -= dt; b.padCd -= dt; b.inv -= dt; b.jumpCd = (b.jumpCd || 0) - dt; b.armorT = (b.armorT || 0) - dt; b.slowT -= dt; b.shieldT -= dt; b.skillT -= dt;
+    if (b.acidT > 0 && !b.falling) {   // sour acid: little bites every 0.4 s, no knockback, can finish a jelly off
+      b.acidT -= dt; b.acidTick -= dt;
+      if (b.acidTick <= 0) { b.acidTick = 0.4; const by = s.blobs.find((q) => q.id === b.acidBy); b.hp -= b.acidDmg; if (by) by.dmgDealt += b.acidDmg; s.events.push({ type: 'acid', b: b.id, x: b.x, z: b.z, dmg: Math.round(b.acidDmg), a: b.acidBy });
+        if (b.hp <= 0 && b.alive) { b.alive = false; b.hp = 0; if (by) by.kos++; s.events.push({ type: 'splat', b: b.id, by: b.acidBy ?? null, x: b.x, z: b.z }); continue; } }
+    }
     b.sk = Math.min(100, b.sk + dt * 2.8 * (100 / (b.ch.skill.charge || 100))); b.bumpCd = (b.bumpCd ?? 0) - dt; b.hazCd = (b.hazCd ?? 0) - dt;
     const inp = b.input;
     const dashPressed = inp.dash && !b.prevDash; b.prevDash = inp.dash;
@@ -269,13 +284,14 @@ export function step(s, dt) {
     }
     b.dashT -= dt;
 
-    if (skillPressed && b.sk >= 100 && b.stun <= 0 && !b.air) { if (inp.aim) { b.face = Math.atan2(inp.ax, inp.az); b.aimD = inp.ad; } else b.aimD = 0; castSkill(s, b); }
+    if (skillPressed && b.sk >= 100 && b.stun <= 0.1) {   // skills work mid-air too
+      if (inp.aim) { b.face = Math.atan2(inp.ax, inp.az); b.aimD = inp.ad; } else b.aimD = 0; castSkill(s, b); }
     if (b.rushT > 0) {
       b.rushT -= dt;
       for (const o of live) { if (o === b || o.falling || b.rushHit.has(o)) continue; if (Math.hypot(o.x - b.x, o.z - b.z) < b.r + o.r + 0.35) { b.rushHit.add(o); damage(s, b, o, 20 * RARITY[b.ch.rarity].mul, o.x - b.x, o.z - b.z, 13, 0.4, 'skill'); } }
     }
     if (inp.atk) b.atkBuf = 0.25; else b.atkBuf = Math.max(0, (b.atkBuf || 0) - dt);   // buffered click
-    if (b.atkBuf > 0 && b.atkCd <= 0 && b.stun <= 0.08 && b.atkT < 0) {
+    if (b.atkBuf > 0 && b.atkCd <= 0 && b.stun <= 0.16 && b.atkT < 0) {
       b.atkBuf = 0;
       b.atkT = 0; b.fired = false; b.atkCd = b.w.cd;
       if (!inp.aim) { // aim assist: lock onto the best enemy in front when attacking toward your facing
@@ -305,7 +321,7 @@ export function step(s, dt) {
             for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; if (Math.hypot(o.x - cx, o.z - cz) < r + o.r) damage(s, b, o, w.dmg * b.dive.wm * (crit ? 1.9 : 1.35), o.x - b.x, o.z - b.z, w.kb * (crit ? 1.3 : 1.12), Math.max(0.2, w.stun), crit ? 'crit' : 'jump'); }
             b.dive = null; }
           b.padAir = false; if (b.bounces > 0) { const m = RARITY[b.ch.rarity].mul; aoe(s, b, 2.2, 12 * m, 10.5, 0.3, 'skill'); s.events.push({ type: 'impact', b: b.id, x: b.x, z: b.z, r: 2.2 }); b.bounces--; if (b.bounces > 0) { b.vy = 8.5; b.air = true; b.vx = Math.sin(b.face) * 7; b.vz = Math.cos(b.face) * 7; } }
-          if (b.nova) { b.nova = false; const m = RARITY[b.ch.rarity].mul; aoe(s, b, 3.6, 27 * m, 16, 0.45, 'skill'); s.events.push({ type: 'novaBoom', b: b.id, x: b.x, z: b.z, r: 3.6 }); b.vx *= 0.2; b.vz *= 0.2;
+          if (b.nova) { b.nova = false; const m = RARITY[b.ch.rarity].mul; aoe(s, b, 3.6, 24 * m, 15, 0.4, 'skill'); s.events.push({ type: 'novaBoom', b: b.id, x: b.x, z: b.z, r: 3.6 }); b.vx *= 0.2; b.vz *= 0.2;
             for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; s.proj.push({ owner: b.id, x: b.x + Math.sin(a) * 0.9, z: b.z + Math.cos(a) * 0.9, y: 0.6, vx: Math.sin(a) * 13, vz: Math.cos(a) * 13, vy: 0, life: 0.55, w: { id: 'star', dmg: 8 * m, kb: 7, speed: 13, range: 7, stun: 0.1 }, lob: false, alive: true }); } }
           if (b.fizz) { b.fizz = false; aoe(s, b, 3.0, 27 * RARITY[b.ch.rarity].mul, 13, 0.35, 'skill'); s.events.push({ type: 'impact', b: b.id, x: b.x, z: b.z, r: 3.0 }); } } }
     if (!b.air || b.y < 1.2) collideStatic(s, b, b.r);
@@ -346,13 +362,15 @@ export function step(s, dt) {
     if (!p.alive) continue;
     p.life -= dt; p.x += p.vx * dt; p.z += p.vz * dt;
     if (p.lob) { p.vy -= 16 * dt; p.y += p.vy * dt; if (p.y <= 0.15) { p.alive = false; explode(s, p); continue; } }
+    else if (p.y > 0.66) p.y = Math.max(0.65, p.y - dt * 2.2);
     if (p.life <= 0) { p.alive = false; if (p.lob || p.boom) explode(s, p); continue; }
     const tmp = { x: p.x, z: p.z, vx: 0, vz: 0 };
     if (p.y < 1.4 && collideStatic(s, tmp, 0.15)) { p.alive = false; if (p.lob || p.boom) explode(s, p); else s.events.push({ type: 'pop', x: p.x, z: p.z }); continue; }
     if (p.lob) continue;
     for (const o of s.blobs) {
       if (o.id === p.owner || !o.alive || o.falling) continue;
-      if (Math.hypot(o.x - p.x, o.z - p.z) < o.r + (p.boom ? 0.3 : 0.2)) {
+      if (Math.hypot(o.x - p.x, o.z - p.z) < o.r + (p.boom ? 0.3 : 0.2) && Math.abs((o.y || 0) + 0.6 - p.y) < 0.95) {
+        if (p.sid) { if (o.sidHit === p.sid) o.inv = 0; o.sidHit = p.sid; }   // every pellet of one blast lands
         if (p.boom) { p.alive = false; explode(s, p); break; }
         if (p.pierce) { if (p.hit.has(o.id)) continue; p.hit.add(o.id); damage(s, s.blobs.find((q) => q.id === p.owner), o, p.w.dmg, p.vx, p.vz, p.w.kb, p.w.stun, 'shot'); s.events.push({ type: 'projHit', id: p.w.id, x: o.x, z: o.z }); continue; }
         p.alive = false; damage(s, s.blobs.find((q) => q.id === p.owner), o, p.w.dmg, p.vx, p.vz, p.w.kb, p.w.stun, 'shot'); if (p.w.slow) o.slowT = Math.max(o.slowT || 0, p.w.slow); s.events.push({ type: 'projHit', id: p.w.id, x: o.x, z: o.z }); break;
@@ -406,16 +424,18 @@ export function step(s, dt) {
   s.zones = s.zones.filter((z) => z.t < z.life);
   // black holes: pull, then implode
   for (const v of s.vortex) {
-    v.t += dt;
+    v.t += dt; let caught = 0;
     for (const o of live) {
       if (o.id === v.owner || o.falling || !o.alive) continue;
       const dx = v.x - o.x, dz = v.z - o.z, d = Math.hypot(dx, dz);
-      if (d < 4.8 && d > 0.05) { const f = (1 - d / 4.8) * 33 * dt; o.vx += (dx / d) * f; o.vz += (dz / d) * f; o.slowT = Math.max(o.slowT || 0, 0.2); }
+      if (d < 6.2 && d > 0.05) { const f = (1 - d / 6.2) * 46 * dt; o.vx += (dx / d) * f; o.vz += (dz / d) * f; o.slowT = Math.max(o.slowT || 0, 0.25); }
+      if (d < 2.6) caught++;
     }
+    if (!v.mCheck && v.t >= v.life - 0.7) { v.mCheck = true; if (caught >= 2) { v.meteor = true; s.events.push({ type: 'meteorFall', b: v.owner, x: v.x, z: v.z, t: 0.7 }); } }
     if (v.t >= v.life && !v.done) {
-      v.done = true; const own = s.blobs.find((b) => b.id === v.owner);
-      for (const o of live) { if (o.id === v.owner || o.falling || !o.alive) continue; if (Math.hypot(o.x - v.x, o.z - v.z) < 3.3 + o.r) damage(s, own, o, 33 * v.m, o.x - v.x, o.z - v.z, 19, 0.5, 'skill'); }
-      s.events.push({ type: 'implode', b: v.owner, x: v.x, z: v.z, r: 3.3 });
+      v.done = true; const own = s.blobs.find((b) => b.id === v.owner), R = v.meteor ? 4.8 : 3.8, dmg = (v.meteor ? 52 : 36) * v.m, kb = v.meteor ? 25 : 20;
+      for (const o of live) { if (o.id === v.owner || o.falling || !o.alive) continue; if (Math.hypot(o.x - v.x, o.z - v.z) < R + o.r) damage(s, own, o, dmg, o.x - v.x, o.z - v.z, kb, 0.6, 'skill'); }
+      s.events.push({ type: 'implode', b: v.owner, x: v.x, z: v.z, r: R, mega: !!v.meteor });
     }
   }
   s.vortex = s.vortex.filter((v) => !v.done);

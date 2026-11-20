@@ -89,7 +89,7 @@ export const MAPS = [
     id: 'bubble', name: 'Bubblegum Pop', R: 11,
     top: '#f3e6ff', tile: '#e2ccff', rim: '#4a2a7a', side: '#c08aff', layer: '#ff9ad6', sea: '#ff9ad6', wobble: true,
     pieces: [
-      ...diag(4.4, ['#ff9ad6', '#9be7ff', '#ffe08a', '#b8f5c9']).map((p) => ({ ...p, kind: 'tower', r: 0.75, bumper: true })),
+      ...diag(6.7, ['#ff9ad6', '#9be7ff', '#ffe08a', '#b8f5c9']).map((p) => ({ ...p, kind: 'tower', r: 0.75, bumper: true })),   // outside the sweeper's reach
       { kind: 'bear', x: 0, z: 0, r: 0.8, color: '#ff5ab8' },
     ],
     hazard: { type: 'sweeper', r0: 1.5, r1: 5.2, speed: -0.6 },
@@ -110,10 +110,10 @@ export const LOUNGE = { id: 'lounge', name: 'Jelly Lounge', R: 7.2, top: '#fff1f
   pieces: [{ kind: 'gumdrop', x: -4.6, z: -3.2, r: 0.6, color: '#7ad0ff' }, { kind: 'gumdrop', x: 4.6, z: -3.2, r: 0.6, color: '#ffc93c' }], pads: [], fences: [[0, 2 * Math.PI]] };
 export function buildColliders(map) {
   const circles = [], boxes = [];
-  for (const p of map.pieces) {
-    if (p.hw) boxes.push({ x: p.x, z: p.z, hw: p.hw, hd: p.hd });
-    else circles.push({ x: p.x, z: p.z, r: p.r, bumper: !!p.bumper });
-  }
+  map.pieces.forEach((p, pi) => {
+    if (p.hw) boxes.push({ x: p.x, z: p.z, hw: p.hw, hd: p.hd, pi });
+    else circles.push({ x: p.x, z: p.z, r: p.r, bumper: !!p.bumper, pi });
+  });
   const posts = [];
   for (const [a0, a1] of map.fences) for (const q of arcPosts(map.R, a0, a1)) { circles.push({ x: q.x, z: q.z, r: q.r, post: true }); posts.push(q); }
   return { circles, boxes, posts };
