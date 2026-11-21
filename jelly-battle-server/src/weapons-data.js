@@ -29,10 +29,10 @@ export const WEAPONS = [
   { id: 'axe', rarity: 'rare', name: 'Taffy Axe', type: 'swing', price: 350, dmg: 30, kb: 11.5, cd: 0.52, wind: 0.13, reach: 1.65, arc: 1.35, stun: 0.25, desc: 'Heavy taffy cleave in a wide arc.' },
   { id: 'donut', rarity: 'rare', name: 'Donut Disc', type: 'shoot', price: 350, dmg: 5.2, kb: 6, cd: 0.62, wind: 0.06, speed: 14, range: 8, stun: 0.12, desc: 'Fling frosted donuts across the arena.' },
   { id: 'churro', rarity: 'epic', name: 'Churro Saber', type: 'swing', price: 450, dmg: 21.5, kb: 9, cd: 0.38, wind: 0.09, reach: 1.75, arc: 1.3, stun: 0.18, desc: 'Crispy, cinnamon-dusted slashes.' },
-  { id: 'sprinkle', rarity: 'epic', name: 'Sprinkle Shotgun', type: 'spread', price: 450, dmg: 3.5, kb: 5.4, cd: 0.9, wind: 0.08, speed: 15, range: 6, stun: 0.12, desc: 'A rainbow burst of sprinkles.' },
+  { id: 'sprinkle', rarity: 'epic', name: 'Sprinkle Shotgun', type: 'spread', price: 450, dmg: 4.4, kb: 5.9, cd: 0.82, wind: 0.08, speed: 16, range: 6.6, stun: 0.12, desc: 'A rainbow burst of sprinkles.' },
   { id: 'lance', rarity: 'legendary', name: 'Ice Pop Lance', type: 'thrust', price: 600, dmg: 20, kb: 10.5, cd: 0.75, wind: 0.14, reach: 2.6, stun: 0.25, desc: 'Frozen reach that skewers from afar.' },
   { id: 'flail', rarity: 'mythic', name: 'Jawbreaker Flail', type: 'slam', price: 800, dmg: 30, kb: 13.5, cd: 1.2, wind: 0.3, reach: 1.7, aoe: 1.6, stun: 0.4, desc: 'A rock-hard candy wrecking ball.' },
-  { id: 'wand', rarity: 'mythic', name: 'Cotton Candy Wand', type: 'cloud', price: 800, dmg: 11, kb: 8, cd: 1.4, wind: 0.12, range: 7, aoe: 1.7, stun: 0.3, desc: 'Summon a sugar cloud where you aim. It bursts and slows.' },
+  { id: 'wand', rarity: 'mythic', name: 'Cotton Candy Wand', type: 'cloud', price: 800, dmg: 15, kb: 9, cd: 1.15, wind: 0.12, range: 7.5, aoe: 2.0, stun: 0.35, desc: 'Summon a sugar cloud where you aim. It bursts and slows.' },
   { id: 'scythe', rarity: 'secret', name: 'Galaxy Scythe', type: 'swing', price: 1000, dmg: 21, kb: 11, cd: 0.55, wind: 0.12, reach: 2.0, arc: 1.6, stun: 0.2, desc: 'Reaps a sweeping crescent of stardust.' },
   { id: 'thunder', rarity: 'secret', name: 'Thunder Lollipop', type: 'thunder', price: 1000, dmg: 25, kb: 12.5, cd: 1.15, wind: 0.24, reach: 1.6, aoe: 1.6, range: 8, stun: 0.1, desc: 'Smashes up close, calls lightning on far targets.' },
 ];

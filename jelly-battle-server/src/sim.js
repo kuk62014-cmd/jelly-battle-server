@@ -9,18 +9,25 @@ export const C = {
   SUDDEN: 50, GIFT_FIRST: 5, GIFT_EVERY: 8, BUFF_T: 6,
 };
 
+const NOINP = { mx: 0, mz: 0, atk: false, skill: false, dash: false, jump: false, aim: false, ax: 0, az: 0 };
 export function createSim(players, map) {
   const col = buildColliders(map);
-  const n = players.length;
+  const n = players.length, s0 = [];
   return {
     t: 0, map, col, R: map.R, events: [], proj: [], gifts: [], rollers: [], vortex: [], zones: [], bolts: [], rollT: 4, sweepA: 0, giftT: C.GIFT_FIRST, over: false, winner: null, sudden: false,
     blobs: players.map((p, i) => {
       const a = (i / n) * Math.PI * 2 + Math.PI / 4;
       const r = map.R * 0.62;
       // spawn on the ring, but slide sideways / inward until clear of every structure (never inside a cone or tower)
-      const blocked = (x, z) => col.circles.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.05) || col.boxes.some((b) => Math.abs(x - b.x) < b.hw + 1.05 && Math.abs(z - b.z) < b.hd + 1.05);
+      // spawn clear of every structure, jump pad and earlier spawn (generous margin = no visual overlap either)
       let x = Math.cos(a) * r, z = Math.sin(a) * r;
-      if (blocked(x, z)) { let found = false; for (const rr of [r, r * 0.9, r * 1.08, r * 0.8]) { for (const da of [0.28, -0.28, 0.5, -0.5, 0.75, -0.75]) { const tx = Math.cos(a + da) * rr, tz = Math.sin(a + da) * rr; if (!blocked(tx, tz)) { x = tx; z = tz; found = true; break; } } if (found) break; } }
+      const placed = s0.slice(0, i), pads = map.pads || [];
+      const clear = (x, z) => Math.hypot(x, z) < map.R - 1.3 && !col.circles.some((c) => Math.hypot(c.x - x, c.z - z) < c.r + 1.45) && !col.boxes.some((q) => Math.abs(x - q.x) < q.hw + 1.4 && Math.abs(z - q.z) < q.hd + 1.4)
+        && !pads.some((q) => Math.hypot(q.x - x, q.z - z) < 2.0) && !placed.some((q) => Math.hypot(q[0] - x, q[1] - z) < 2.4);
+      if (!clear(x, z)) { let best = null, bd = 1e9; for (const rr of [r, r * 0.9, r * 1.08, r * 0.78, r * 1.15, r * 0.66, r * 0.5]) for (let k = 0; k < 48; k++) { const da = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 0.065, tx = Math.cos(a + da) * rr, tz = Math.sin(a + da) * rr;
+          if (clear(tx, tz)) { const cost = Math.abs(da) * 3 + Math.abs(rr - r) * 0.5; if (cost < bd) { bd = cost; best = [tx, tz]; } } }
+        if (best) [x, z] = best; }
+      s0.push([x, z]);
       return {
         id: p.id, idx: i, human: !!(p.isMe || p.human), dummy: !!p.dummy, x, z, vx: 0, vz: 0, y: 0, vy: 0, r: C.R_BODY,
         face: Math.atan2(-x, -z), hp: C.HP, alive: true, falling: false, air: false,
@@ -34,10 +41,11 @@ export function createSim(players, map) {
 
 function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   if (!o.alive || o.falling || o.inv > 0) return;
-  const pw = a && a.buff.power > 0 ? 1.5 : 1;
+  const pw = (a && a.buff.power > 0 ? 1.5 : 1) * (a && a.pudT > 0 ? 1.35 : 1);
   const sd = s.sudden ? 1.5 : 1;
-  const sh = o.shieldT > 0 ? 0.3 : 1;
-  const crit = a && kind !== 'hazard' && (kind === 'crit' || (kind !== 'jump' && Math.random() < 0.1));
+  const sh = (o.shieldT > 0 ? 0.3 : 1) * (o.novaGuardT > 0 ? 0.2 : 1);
+  const mochiCrit = a && a.bounces === 1 && a.air && kind !== 'skill' && kind !== 'hazard';   // Mochi's final hop: every weapon hit is a guaranteed crit
+  const crit = a && kind !== 'hazard' && (kind === 'crit' || mochiCrit || (kind !== 'jump' && Math.random() < 0.1));
   // tutorial tuning (s.tutPhase set by the client): bots spar each other gently and can't KO each other,
   // they only nibble at you while you learn, then fight for real in the final 'KO them all' phase
   const botVsBot = s.tut && a && !a.human && !o.human, botVsYou = s.tut && a && !a.human && o.human;
@@ -60,7 +68,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.stun = Math.max(o.stun, Math.min(stun, 0.2));   // getting knocked back never cancels a swing you already started
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
   if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
-  s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit });
+  s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit, mochi: !!mochiCrit || undefined });
   if (o.hp <= 0) {
     o.alive = false; o.hp = 0;
     if (a) a.kos++;
@@ -69,26 +77,32 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
 }
 
 // ---------- character skills ----------
-const GRAPE = { id: 'grape', dmg: 9, kb: 7.5, speed: 16, range: 8, stun: 0.12, slow: 1.2 };
+const GRAPE = { id: 'grape', dmg: 9, kb: 8.5, speed: 16, range: 8, stun: 0.12, slow: 1.2 };
 function aoe(s, b, r, dmg, kb, stun, kind, extra) {
   for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; if (Math.hypot(o.x - b.x, o.z - b.z) < r + o.r) { damage(s, b, o, dmg, o.x - b.x, o.z - b.z, kb, stun, kind); extra?.(o); } }
 }
 function castSkill(s, b) {
   const m = RARITY[b.ch.rarity].mul, id = b.ch.skill.id, fx = Math.sin(b.face), fz = Math.cos(b.face);
   b.sk = 0; b.skillT = 0.6; b.armorT = id === 'rush' ? 0.7 : 0.9;   // brief super-armor so skills don't get interrupted
-  s.events.push({ type: 'skill', b: b.id, id, x: b.x, z: b.z });
-  if (id === 'rush') { b.rushT = 0.38; b.rushHit = new Set(); b.vx = fx * 19; b.vz = fz * 19; b.inv = 0.38; }
+  s.events.push({ type: 'skill', b: b.id, id, x: b.x, z: b.z, y: b.y || 0 });
+  if (id === 'rush') { b.rushT = 0.4; b.rushHit = new Map(); b.vx = fx * 18; b.vz = fz * 18; b.inv = 0.4; }
   else if (id === 'sour') { aoe(s, b, 3.2, 13 * m, 6, 0.3, 'skill', (o) => { o.slowT = 3; o.acidT = 3.2; o.acidTick = 0.4; o.acidDmg = 4.2 * m; o.acidBy = b.id; s.events.push({ type: 'acidOn', b: o.id, x: o.x, z: o.z }); }); }
-  else if (id === 'fizz') { b.vy = 12; b.air = true; b.fizz = true; b.vx *= 0.3; b.vz *= 0.3; }
-  else if (id === 'shield') { b.shieldT = 3.5; }
-  else if (id === 'grapeshot') { for (let i = -4; i <= 4; i++) { const a = b.face + i * 0.17; s.proj.push({ owner: b.id, x: b.x + Math.sin(a) * (b.r + 0.3), z: b.z + Math.cos(a) * (b.r + 0.3), y: 0.65, vx: Math.sin(a) * 16, vz: Math.cos(a) * 16, vy: 0, life: 0.55, w: { ...GRAPE, dmg: GRAPE.dmg * m }, lob: false, alive: true }); } }
-  else if (id === 'geyser') { aoe(s, b, 3.1, 12 * m, 16, 0.4, 'skill'); s.events.push({ type: 'boom', x: b.x, z: b.z, r: 3.1 }); }
+  else if (id === 'fizz') { let tgt = null, bd = 9; for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; const d = Math.hypot(o.x - b.x, o.z - b.z); if (d < bd) { bd = d; tgt = o; } }
+    const T = 2 * 13 / 24, tx = tgt ? tgt.x : b.x + fx * 4, tz = tgt ? tgt.z : b.z + fz * 4;   // big hop that lands right on them
+    b.vy = 13; b.air = true; b.fizz = true; b.fizzTgt = tgt ? tgt.id : null; b.fizzX = tx; b.fizzZ = tz; b.vx = (tx - b.x) / T; b.vz = (tz - b.z) / T; b.face = Math.atan2(tx - b.x, tz - b.z); b.inv = 0.5; }
+  else if (id === 'shield') { b.shieldT = 3.5; b.healT = 5; b.healLeft = C.HP * 0.3; }
+  else if (id === 'grapeshot') { const sid = Math.random(); for (let i = -4; i <= 4; i++) { const a = b.face + i * 0.17; s.proj.push({ owner: b.id, x: b.x + Math.sin(a) * (b.r + 0.3), z: b.z + Math.cos(a) * (b.r + 0.3), y: 0.65, vx: Math.sin(a) * 16, vz: Math.cos(a) * 16, vy: 0, life: 0.55, w: { ...GRAPE, dmg: GRAPE.dmg * m }, lob: false, sid, alive: true }); } }
+  else if (id === 'geyser') { aoe(s, b, 3.1, 12 * m, 16, 0.4, 'skill'); s.events.push({ type: 'boom', x: b.x, z: b.z, r: 3.1 });
+    for (let i = 0; i < 3; i++) { const a = b.face + (i - 1) * 2.09 + (Math.random() - 0.5) * 1.1, d = 2.6 + Math.random() * 2.6, T = 0.75 + i * 0.12;
+      s.proj.push({ owner: b.id, x: b.x, z: b.z, y: 1.4, vx: Math.sin(a) * d / T, vz: Math.cos(a) * d / T, vy: 0.5 * 16 * T - 1.4 / T, life: 5, lob: true, alive: true,
+        w: { id: 'mentos', dmg: 16 * m, kb: 12, aoe: 1.9, stun: 0.3, noSelf: true } }); } }
   else if (id === 'bounce') { b.bounces = 3; b.vy = 9; b.air = true; b.vx = fx * 7; b.vz = fz * 7; }
-  else if (id === 'caramel') { s.zones.push({ owner: b.id, x: b.x + fx * 1.2, z: b.z + fz * 1.2, r: 2.6, t: 0, life: 3.2, tick: 0, m }); s.events.push({ type: 'caramel', b: b.id, x: b.x + fx * 1.2, z: b.z + fz * 1.2, r: 2.6 }); }
+  else if (id === 'caramel') { const cx = b.x + fx * 1.6, cz = b.z + fz * 1.6; s.zones.push({ owner: b.id, x: cx, z: cz, r: 3.1, t: 0, life: 4, tick: 0.35, m }); s.events.push({ type: 'caramel', b: b.id, x: cx, z: cz, r: 3.1 });
+    for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; if (Math.hypot(o.x - cx, o.z - cz) < 3.1 + o.r) damage(s, b, o, 14 * m, o.x - cx, o.z - cz, 4, 0.35, 'skill'); } }
   else if (id === 'boba') { b.bobaT = 1.5; b.bobaShot = 0; b.bobaA = b.face; }
   else if (id === 'nova') { b.vy = 14.5; b.air = true; b.nova = true; b.novaDive = false; b.vx *= 0.25; b.vz *= 0.25; b.inv = 1.4; s.events.push({ type: 'novaRise', b: b.id, x: b.x, z: b.z }); }
   else if (id === 'blackhole') { const d = b.aimD ? Math.max(1.6, Math.min(5.5, b.aimD)) : 2.8; s.vortex.push({ owner: b.id, x: b.x + fx * d, z: b.z + fz * d, t: 0, life: 1.9, m }); s.events.push({ type: 'vortex', b: b.id, x: b.x + fx * d, z: b.z + fz * d }); }
-  else if (id === 'rage') { b.buff.power = 4; b.buff.speed = 4; b.buff.giant = 4; b.hp = Math.min(C.HP, b.hp + 8); }
+  else if (id === 'rage') { b.buff.power = 4; b.buff.speed = 4; b.buff.giant = 4; b.rageT = 4; b.hp = Math.min(C.HP, b.hp + 8); }
 }
 
 function inBox(b, x, z, pad) { return Math.abs(x - b.x) < b.hw + pad && Math.abs(z - b.z) < b.hd + pad; }
@@ -133,7 +147,7 @@ function fire(s, b) {
   const wm = RARITY[b.w.rarity || 'common'].mul * 0.5 + 0.5;
   const w = { ...b.w, dmg: b.w.dmg * wm }, fx = Math.sin(b.face), fz = Math.cos(b.face);
   const live = s.blobs.filter((o) => o !== b && o.alive && !o.falling);
-  const gs = b.buff.giant > 0 ? 1.5 : 1;
+  const gs = b.rageT > 0 ? 2.0 : b.buff.giant > 0 ? 1.5 : 1;
   // airborne melee turns into a dive: plunge down and smash where you land (crit off a jump pad with slam weapons)
   if (b.air && !b.falling && (w.type === 'slam' || w.type === 'swing' || w.type === 'thunder')) {
     b.dive = { pad: !!b.padAir, wm }; b.vy = Math.min(b.vy, -17); b.vx *= 0.55; b.vz *= 0.55; s.events.push({ type: 'dive', b: b.id }); return;
@@ -209,7 +223,7 @@ function explode(s, p) {
   const owner = s.blobs.find((o) => o.id === p.owner);
   s.events.push({ type: 'boom', x: p.x, z: p.z, r: p.w.aoe, id: p.w.id });
   for (const o of s.blobs) {
-    if (!o.alive || o.falling) continue;
+    if (!o.alive || o.falling || (p.w.noSelf && o.id === p.owner)) continue;
     const d = Math.hypot(o.x - p.x, o.z - p.z);
     if (d < p.w.aoe + o.r) damage(s, owner, o, p.w.dmg * (o.id === p.owner ? 0.25 : 1), o.x - p.x, o.z - p.z, p.w.kb, p.w.stun, 'boom');
   }
@@ -238,17 +252,26 @@ export function step(s, dt) {
 
   for (const b of live) {
     for (const k in b.buff) b.buff[k] = Math.max(0, b.buff[k] - dt);
-    b.r = C.R_BODY * (b.buff.giant > 0 ? 1.35 : 1);
+    b.rageT = Math.max(0, (b.rageT || 0) - dt); if (b.buff.giant <= 0) b.rageT = 0;
+    b.r = C.R_BODY * (b.rageT > 0 ? 1.9 : b.buff.giant > 0 ? 1.35 : 1);
+    b.novaGuardT = Math.max(0, (b.novaGuardT || 0) - dt); if (b.pudT > 0) b.pudT -= dt;
+    if (b.healT > 0) { const h = Math.min(b.healLeft, C.HP * 0.3 / 5 * dt); b.healT -= dt; b.healLeft -= h; b.hp = Math.min(C.HP, b.hp + h); }
     b.atkCd -= dt; b.dashCd -= dt; b.stun -= dt; b.padCd -= dt; b.inv -= dt; b.jumpCd = (b.jumpCd || 0) - dt; b.armorT = (b.armorT || 0) - dt; b.slowT -= dt; b.shieldT -= dt; b.skillT -= dt;
+    if (b.burnT > 0 && !b.falling) {   // meteor burn: fire bites every 0.4 s
+      b.burnT -= dt; b.burnTick -= dt;
+      if (b.burnTick <= 0) { b.burnTick = 0.5; const by = s.blobs.find((q) => q.id === b.burnBy); const d = b.dummy ? 0 : b.burnDmg; b.hp -= d; if (by) by.dmgDealt += d; b.lastHitBy = b.burnBy; b.lastHitT = s.t; s.events.push({ type: 'burn', b: b.id, x: b.x, z: b.z, dmg: Math.round(b.burnDmg), a: b.burnBy });
+        if (b.hp <= 0 && b.alive) { b.alive = false; b.hp = 0; if (by) by.kos++; s.events.push({ type: 'splat', b: b.id, by: b.burnBy ?? null, x: b.x, z: b.z }); continue; } }
+    }
     if (b.acidT > 0 && !b.falling) {   // sour acid: little bites every 0.4 s, no knockback, can finish a jelly off
       b.acidT -= dt; b.acidTick -= dt;
       if (b.acidTick <= 0) { b.acidTick = 0.4; const by = s.blobs.find((q) => q.id === b.acidBy); b.hp -= b.acidDmg; if (by) by.dmgDealt += b.acidDmg; s.events.push({ type: 'acid', b: b.id, x: b.x, z: b.z, dmg: Math.round(b.acidDmg), a: b.acidBy });
         if (b.hp <= 0 && b.alive) { b.alive = false; b.hp = 0; if (by) by.kos++; s.events.push({ type: 'splat', b: b.id, by: b.acidBy ?? null, x: b.x, z: b.z }); continue; } }
     }
     b.sk = Math.min(100, b.sk + dt * 2.8 * (100 / (b.ch.skill.charge || 100))); b.bumpCd = (b.bumpCd ?? 0) - dt; b.hazCd = (b.hazCd ?? 0) - dt;
-    const inp = b.input;
+    if (b.cineT > 0) b.cineT -= dt;
+    const inp = b.cineT > 0 ? NOINP : b.input;   // Void's cutscene drives the owner
     const dashPressed = inp.dash && !b.prevDash; b.prevDash = inp.dash;
-    const skillPressed = inp.skill && !b.prevSkill; b.prevSkill = inp.skill;
+    if (inp.skill && !b.prevSkill) b.skBuf = 0.3; b.prevSkill = inp.skill; b.skBuf = Math.max(0, (b.skBuf || 0) - dt); const skillPressed = b.skBuf > 0;   // buffered: a tap during stun / landing still fires
 
     if (b.falling) {
       b.vy -= 26 * dt; b.y += b.vy * dt; b.x += b.vx * dt; b.z += b.vz * dt;
@@ -284,16 +307,23 @@ export function step(s, dt) {
     }
     b.dashT -= dt;
 
-    if (skillPressed && b.sk >= 100 && b.stun <= 0.1) {   // skills work mid-air too
+    if (skillPressed && b.sk >= 100 && b.stun <= 0.1) { b.skBuf = 0;   // skills work mid-air too
       if (inp.aim) { b.face = Math.atan2(inp.ax, inp.az); b.aimD = inp.ad; } else b.aimD = 0; castSkill(s, b); }
     if (b.rushT > 0) {
       b.rushT -= dt;
-      for (const o of live) { if (o === b || o.falling || b.rushHit.has(o)) continue; if (Math.hypot(o.x - b.x, o.z - b.z) < b.r + o.r + 0.35) { b.rushHit.add(o); damage(s, b, o, 20 * RARITY[b.ch.rarity].mul, o.x - b.x, o.z - b.z, 13, 0.4, 'skill'); } }
+      const m = RARITY[b.ch.rarity].mul, fx = Math.sin(b.face), fz = Math.cos(b.face);
+      // meteor rush: rapid 3-hit flurry that drags victims along the bow shock and sets them on fire, then a finishing blast
+      for (const o of live) { if (o === b || o.falling || !o.alive) continue; const st = b.rushHit.get(o) || { n: 0, cd: 0 }; st.cd -= dt;
+        if (Math.hypot(o.x - b.x, o.z - b.z) < b.r + o.r + 0.5) { if (st.n < 3 && st.cd <= 0) { st.n++; st.cd = 0.09; o.inv = 0; damage(s, b, o, 4 * m, fx, fz, 2.5, 0.2, 'skill'); o.vx = b.vx * 0.55; o.vz = b.vz * 0.55; o.x = b.x + fx * (b.r + o.r + 0.2); o.z = b.z + fz * (b.r + o.r + 0.2);
+            o.burnT = 1.5; o.burnTick = Math.min(o.burnTick || 0.5, 0.5); o.burnBy = b.id; o.burnDmg = 2 * m; s.events.push({ type: 'rushHit', b: o.id, a: b.id, x: o.x, z: o.z, n: st.n }); }
+          b.rushHit.set(o, st); } }
+      if (b.rushT <= 0) { for (const [o, st] of b.rushHit) if (st.n > 0 && o.alive && !o.falling && Math.hypot(o.x - b.x, o.z - b.z) < 2.4) { o.inv = 0; damage(s, b, o, 8 * m, o.x - b.x + fx * 0.5, o.z - b.z + fz * 0.5, 11, 0.35, 'skill'); }
+        if (b.rushHit.size && [...b.rushHit.values()].some((q) => q.n > 0)) s.events.push({ type: 'rushEnd', b: b.id, x: b.x + fx * 0.8, z: b.z + fz * 0.8 }); }
     }
     if (inp.atk) b.atkBuf = 0.25; else b.atkBuf = Math.max(0, (b.atkBuf || 0) - dt);   // buffered click
     if (b.atkBuf > 0 && b.atkCd <= 0 && b.stun <= 0.16 && b.atkT < 0) {
       b.atkBuf = 0;
-      b.atkT = 0; b.fired = false; b.atkCd = b.w.cd;
+      b.atkT = 0; b.fired = false; b.atkCd = b.w.cd * (b.novaGuardT > 0 ? 0.7 : 1);
       if (!inp.aim) { // aim assist: lock onto the best enemy in front when attacking toward your facing
         const ranged = b.w.type === 'shoot' || b.w.type === 'spread' || b.w.type === 'lob' || b.w.type === 'rocket' || b.w.type === 'cloud' || b.w.type === 'thunder';
         const maxD = ranged ? (b.w.range || 8) : b.r + (b.w.reach || 1.3) + (b.w.aoe || 0) + 1.2, cone = ranged ? 0.6 : 1.2;
@@ -314,16 +344,19 @@ export function step(s, dt) {
     if (b.nova && !b.novaDive && b.vy < 1.5) { b.novaHang = (b.novaHang || 0) + dt; b.vy = Math.max(b.vy, 0.2);
       if (b.novaHang > 0.28) { b.novaDive = true; b.novaHang = 0; let tgt = null, bd = 6; for (const o of live) { if (o === b || o.falling) continue; const d = Math.hypot(o.x - b.x, o.z - b.z); if (d < bd) { bd = d; tgt = o; } }
         if (tgt) { b.vx = (tgt.x - b.x) * 2.2; b.vz = (tgt.z - b.z) * 2.2; b.face = Math.atan2(tgt.x - b.x, tgt.z - b.z); } b.vy = -28; s.events.push({ type: 'novaDive', b: b.id }); } }
+    if (b.fizz && b.air) {   // Fizz Rocket homes in: re-aim each frame so it lands right on the target, even if they move
+      const t = s.blobs.find((o) => o.id === b.fizzTgt && o.alive && !o.falling); if (t) { b.fizzX = t.x; b.fizzZ = t.z; }
+      const tr = Math.max(0.05, (b.vy + Math.sqrt(Math.max(0, b.vy * b.vy + 48 * b.y))) / 24); b.vx = (b.fizzX - b.x) / tr; b.vz = (b.fizzZ - b.z) / tr; }
     if (b.air) { b.vy -= 24 * dt; b.y += b.vy * dt; if (b.y <= 0) { s.events.push({ type: 'land', b: b.id, x: b.x, z: b.z, v: -b.vy }); b.y = 0; b.vy = 0; b.air = false;
-          if (b.dive) { const w = b.w, crit = b.dive.pad && (w.type === 'slam' || w.type === 'thunder'), gs = b.buff.giant > 0 ? 1.5 : 1;
+          if (b.dive) { const w = b.w, crit = (b.dive.pad && (w.type === 'slam' || w.type === 'thunder')) || b.bounces === 1, gs = b.buff.giant > 0 ? 1.5 : 1;
             const cx = b.x + Math.sin(b.face) * (b.r + 0.45), cz = b.z + Math.cos(b.face) * (b.r + 0.45), r = ((w.aoe || 1.1) * 1.2 + (crit ? 0.5 : 0)) * gs;
             s.events.push({ type: 'impact', b: b.id, x: cx, z: cz, r, jump: true, crit }); if (w.type === 'thunder') s.events.push({ type: 'bolt', b: b.id, x: cx, z: cz, r });
             for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; if (Math.hypot(o.x - cx, o.z - cz) < r + o.r) damage(s, b, o, w.dmg * b.dive.wm * (crit ? 1.9 : 1.35), o.x - b.x, o.z - b.z, w.kb * (crit ? 1.3 : 1.12), Math.max(0.2, w.stun), crit ? 'crit' : 'jump'); }
             b.dive = null; }
           b.padAir = false; if (b.bounces > 0) { const m = RARITY[b.ch.rarity].mul; aoe(s, b, 2.2, 12 * m, 10.5, 0.3, 'skill'); s.events.push({ type: 'impact', b: b.id, x: b.x, z: b.z, r: 2.2 }); b.bounces--; if (b.bounces > 0) { b.vy = 8.5; b.air = true; b.vx = Math.sin(b.face) * 7; b.vz = Math.cos(b.face) * 7; } }
-          if (b.nova) { b.nova = false; const m = RARITY[b.ch.rarity].mul; aoe(s, b, 3.6, 24 * m, 15, 0.4, 'skill'); s.events.push({ type: 'novaBoom', b: b.id, x: b.x, z: b.z, r: 3.6 }); b.vx *= 0.2; b.vz *= 0.2;
+          if (b.nova) { b.nova = false; const m = RARITY[b.ch.rarity].mul; aoe(s, b, 3.6, 24 * m, 15, 0.4, 'skill'); s.events.push({ type: 'novaBoom', b: b.id, x: b.x, z: b.z, r: 3.6 }); b.vx *= 0.2; b.vz *= 0.2; b.novaGuardT = 2.5;
             for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; s.proj.push({ owner: b.id, x: b.x + Math.sin(a) * 0.9, z: b.z + Math.cos(a) * 0.9, y: 0.6, vx: Math.sin(a) * 13, vz: Math.cos(a) * 13, vy: 0, life: 0.55, w: { id: 'star', dmg: 8 * m, kb: 7, speed: 13, range: 7, stun: 0.1 }, lob: false, alive: true }); } }
-          if (b.fizz) { b.fizz = false; aoe(s, b, 3.0, 27 * RARITY[b.ch.rarity].mul, 13, 0.35, 'skill'); s.events.push({ type: 'impact', b: b.id, x: b.x, z: b.z, r: 3.0 }); } } }
+          if (b.fizz) { b.fizz = false; aoe(s, b, 3.2, 28 * RARITY[b.ch.rarity].mul, 13, 0.35, 'skill'); s.events.push({ type: 'fizzSplash', b: b.id, x: b.x, z: b.z, r: 3.2 }); b.vx *= 0.15; b.vz *= 0.15; b.buff.speed = Math.max(b.buff.speed, 2.5); } } }
     if (!b.air || b.y < 1.2) collideStatic(s, b, b.r);
 
     // jump (Space): short hop, keeps your momentum, clears rollers and sweepers
@@ -417,8 +450,9 @@ export function step(s, dt) {
   s.bolts = s.bolts.filter((q) => !q.done);
   for (const z of s.zones) {
     z.t += dt; z.tick -= dt;
-    for (const o of live) { if (o.id === z.owner || o.falling || o.air) continue; if (Math.hypot(o.x - z.x, o.z - z.z) < z.r) { o.slowT = Math.max(o.slowT || 0, 0.35); o.vx *= Math.exp(-6 * dt); o.vz *= Math.exp(-6 * dt);
-      if (z.tick <= 0) damage(s, s.blobs.find((q) => q.id === z.owner), o, 5 * z.m, o.x - z.x, o.z - z.z, 2, 0.05, 'skill'); } }
+    { const ow = s.blobs.find((q) => q.id === z.owner); if (ow && ow.alive && !ow.falling && Math.hypot(ow.x - z.x, ow.z - z.z) < z.r) { if (!(ow.pudT > 0)) s.events.push({ type: 'pudBuff', b: ow.id, x: ow.x, z: ow.z }); ow.pudT = 0.25; } }   // Pud standing in his own caramel: +35% damage
+    for (const o of live) { if (o.id === z.owner || o.falling || o.air) continue; if (Math.hypot(o.x - z.x, o.z - z.z) < z.r) { o.slowT = Math.max(o.slowT || 0, 0.4); o.vx *= Math.exp(-8 * dt); o.vz *= Math.exp(-8 * dt); o.vx += (z.x - o.x) * 1.6 * dt; o.vz += (z.z - o.z) * 1.6 * dt;   // sticky + gently sucked to the middle
+      if (z.tick <= 0) damage(s, s.blobs.find((q) => q.id === z.owner), o, 7 * z.m, o.x - z.x, o.z - z.z, 1.5, 0.05, 'skill'); } }
     if (z.tick <= 0) z.tick = 0.5;
   }
   s.zones = s.zones.filter((z) => z.t < z.life);
@@ -431,11 +465,37 @@ export function step(s, dt) {
       if (d < 6.2 && d > 0.05) { const f = (1 - d / 6.2) * 46 * dt; o.vx += (dx / d) * f; o.vz += (dz / d) * f; o.slowT = Math.max(o.slowT || 0, 0.25); }
       if (d < 2.6) caught++;
     }
-    if (!v.mCheck && v.t >= v.life - 0.7) { v.mCheck = true; if (caught >= 2) { v.meteor = true; s.events.push({ type: 'meteorFall', b: v.owner, x: v.x, z: v.z, t: 0.7 }); } }
+    if (!v.mCheck && v.t >= v.life - 0.7) { v.mCheck = true; const own = s.blobs.find((q) => q.id === v.owner);
+      const vic = live.filter((o) => o.id !== v.owner && !o.falling && o.alive && Math.hypot(o.x - v.x, o.z - v.z) < 3.0);
+      if (vic.length >= 3 && own && own.alive && !own.falling) {   // EVENT HORIZON: 3+ caught -> cutscene, hammer leap, total wipe
+        v.cine = 1; v.vic = vic.map((o) => o.id); v.cT = 0; v.life = v.t + 2.4; own.cineT = 2.45; own.cine0 = [own.x, own.z]; own.atkT = -1;
+        s.events.push({ type: 'voidCine', b: v.owner, x: v.x, z: v.z, dur: 2.4, vic: v.vic });
+      } else if (caught >= 2) { v.meteor = true; s.events.push({ type: 'meteorFall', b: v.owner, x: v.x, z: v.z, t: 0.7 }); } }
+    if (v.cine && !v.done) { v.cT += dt; const own = s.blobs.find((q) => q.id === v.owner);
+      v.vic.forEach((id, i) => { const o = s.blobs.find((q) => q.id === id); if (!o || !o.alive || o.falling) return; const a = v.cT * 7 + i * (6.283 / v.vic.length), rr = 0.95 - Math.min(0.4, v.cT * 0.2);
+        o.x += (v.x + Math.cos(a) * rr - o.x) * Math.min(1, dt * 9); o.z += (v.z + Math.sin(a) * rr - o.z) * Math.min(1, dt * 9); o.vx = o.vz = 0; o.stun = Math.max(o.stun, 0.3); o.slowT = Math.max(o.slowT || 0, 0.3); });
+      if (own && own.alive && !own.falling) { const [x0, z0] = own.cine0;
+        if (v.ux == null) {   // pick the approach side once: from the owner, unless that would put the run-up or the hover outside the cake -> then from the centre side
+          let dx = v.x - x0, dz = v.z - z0, d = Math.hypot(dx, dz) || 1; v.ux = dx / d; v.uz = dz / d; const lim = s.R - 1.2;
+          if (Math.hypot(v.x - v.ux * 3.6, v.z - v.uz * 3.6) > lim) { const r = Math.hypot(v.x, v.z) || 1; v.ux = v.x / r; v.uz = v.z / r; if (r < 0.5) { v.ux = 0; v.uz = 1; } } }
+        const ux = v.ux, uz = v.uz, d = Math.hypot(v.x - x0, v.z - z0), p1x = v.x - ux * 3.6, p1z = v.z - uz * 3.6;
+        own.inv = Math.max(own.inv || 0, 0.3); own.stun = 0; own.vx = own.vz = own.vy = 0; own.face = Math.atan2(ux, uz);
+        // run in -> leap up -> hang & charge the singularity -> dive-bomb straight down onto it
+        if (v.cT < 0.4) { const k = v.cT / 0.4, e = k * k * (3 - 2 * k); own.x = x0 + (p1x - x0) * e; own.z = z0 + (p1z - z0) * e; own.y = 0; own.air = false; }
+        else if (v.cT < 0.85) { const k = (v.cT - 0.4) / 0.45, e = 1 - (1 - k) * (1 - k); own.x = p1x + (v.x - ux * 2.3 - p1x) * e; own.z = p1z + (v.z - uz * 2.3 - p1z) * e; own.y = 5.6 * e + 0.02; own.air = true;
+          if (!v.leapEv) { v.leapEv = 1; s.events.push({ type: 'voidLeap', b: own.id, x: own.x, z: own.z }); } }
+        else if (v.cT < 2.15) { own.x = v.x - ux * 2.3; own.z = v.z - uz * 2.3; own.y = 5.6 + Math.sin((v.cT - 0.85) * 5) * 0.12; own.air = true;
+          if (!v.chargeEv) { v.chargeEv = 1; s.events.push({ type: 'voidCharge', b: own.id, x: v.x, z: v.z, dur: 1.3 }); } }
+        else { const k = Math.min(1, (v.cT - 2.15) / 0.25); own.x = v.x - ux * 2.3; own.z = v.z - uz * 2.3; own.y = Math.max(0.02, 5.6 * (1 - k * k)); own.air = true;
+          if (!v.diveEv) { v.diveEv = 1; s.events.push({ type: 'voidDive', b: own.id, x: v.x, z: v.z }); } } } }
     if (v.t >= v.life && !v.done) {
-      v.done = true; const own = s.blobs.find((b) => b.id === v.owner), R = v.meteor ? 4.8 : 3.8, dmg = (v.meteor ? 52 : 36) * v.m, kb = v.meteor ? 25 : 20;
-      for (const o of live) { if (o.id === v.owner || o.falling || !o.alive) continue; if (Math.hypot(o.x - v.x, o.z - v.z) < R + o.r) damage(s, own, o, dmg, o.x - v.x, o.z - v.z, kb, 0.6, 'skill'); }
-      s.events.push({ type: 'implode', b: v.owner, x: v.x, z: v.z, r: R, mega: !!v.meteor });
+      v.done = true; const own = s.blobs.find((b) => b.id === v.owner), R = v.cine ? 7 : v.meteor ? 4.8 : 3.8, dmg = (v.cine ? 60 : v.meteor ? 52 : 36) * v.m, kb = v.cine ? 34 : v.meteor ? 25 : 20;
+      if (v.cine && own) { own.cineT = 0; own.y = 0; own.air = false; own.vy = 0; own.inv = 0.5; }
+      for (const o of live) { if (o.id === v.owner || o.falling || !o.alive) continue; const inside = Math.hypot(o.x - v.x, o.z - v.z) < R + o.r; if (!inside) continue;
+        if (v.cine && v.vic.includes(o.id)) o.inv = 0; damage(s, own, o, v.cine && v.vic.includes(o.id) ? 999 : dmg, (o.x - v.x) || 0.01, (o.z - v.z) || 0.01, kb, 0.6, 'skill'); }
+      s.events.push({ type: 'implode', b: v.owner, x: v.x, z: v.z, r: R, mega: !!(v.meteor || v.cine), cine: !!v.cine });
+      if (v.cine) { const gone = []; for (const list of [s.col.circles, s.col.boxes]) for (let i = list.length - 1; i >= 0; i--) if (list[i].pi != null) { if (!gone.includes(list[i].pi)) gone.push(list[i].pi); list.splice(i, 1); }
+        s.events.push({ type: 'piecesBlast', x: v.x, z: v.z, pis: gone }); }
     }
   }
   s.vortex = s.vortex.filter((v) => !v.done);

@@ -37,7 +37,7 @@ function lobbyInfo(r, k) { return r.seats.map((s) => ({ id: swapId(s.id, k), nam
 function broadcastLobby(r) { for (const s of r.seats) if (s.human) send(s.human, { t: 'lobby', room: r.id, code: r.priv, priv: !!r.priv, cap: CAP(r), host: s.id === 0, players: lobbyInfo(r, s.id) }); }
 function startMatch(r) {
   if (!r.priv) while (r.seats.length < 4) seatBot(r);
-  r.map = scaleMap(MAPS[(Math.random() * MAPS.length) | 0], r.seats.length); r.round = 0; r.wins = {}; r.kos = {}; for (const s of r.seats) { r.wins[s.id] = 0; r.kos[s.id] = 0; }
+  r.map = scaleMap(MAPS[process.env.QA_MAP != null ? +process.env.QA_MAP % MAPS.length : (Math.random() * MAPS.length) | 0], r.seats.length); r.round = 0; r.wins = {}; r.kos = {}; for (const s of r.seats) { r.wins[s.id] = 0; r.kos[s.id] = 0; }
   for (const s of r.seats) { s.ready = false; if (s.human) send(s.human, { t: 'start', map: r.map.id, n: r.seats.length, friendly: !!r.priv, players: lobbyInfo(r, s.id) }); }
   r.phase = 'vs'; r.t = 2.6;
 }
@@ -48,7 +48,7 @@ function startRound(r) {
   r.phase = 'intro'; r.t = r.round === 1 ? 3.6 : 1.8;
   for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'intro', round: r.round, cd: r.t });
 }
-const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT'];
+const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT', 'rageT', 'novaGuardT', 'healT', 'cineT', 'pudT', 'burnT'];
 const r2 = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 function uid(o) { if (!o.uid) o.uid = uidN++; return o.uid; }
 function snapshot(r, k) {
@@ -57,7 +57,7 @@ function snapshot(r, k) {
   const sub = (arr, f) => (arr || []).map((o) => { const x = { uid: uid(o) }; for (const k2 of f) x[k2] = r2(o[k2]); if (o.owner != null) x.owner = sw(o.owner); return x; });
   return { t: 's', st: r2(s.t), sudden: s.sudden, R: r2(s.R), sweepA: r2(s.sweepA), blobs,
     proj: (s.proj || []).map((p) => ({ uid: uid(p), x: r2(p.x), y: r2(p.y), z: r2(p.z), vx: r2(p.vx), vz: r2(p.vz), lob: p.lob, boom: p.boom, w: p.w.id, owner: sw(p.owner) })),
-    rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life']), vortex: sub(s.vortex, ['x', 'z', 't', 'life']),
+    rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life']), vortex: sub(s.vortex, ['x', 'z', 't', 'life', 'cine', 'meteor']),
     gifts: sub(s.gifts, ['id', 'x', 'z', 'kind', 'y', 't']),
     ev: s.events.map((e) => { const o = { ...e }; for (const f of ['b', 'a', 'by', 'winner']) if (o[f] != null) o[f] = sw(o[f]); return o; }) };
 }
