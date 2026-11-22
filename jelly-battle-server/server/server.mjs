@@ -12,7 +12,7 @@ import { WEAPONS } from '../src/weapons-data.js';
 import { CHARS } from '../src/chars-data.js';
 
 const PORT = Number(process.env.PORT || 8787), ADMIN = process.env.ADMIN_CODE || '1695', DB = process.env.DB_FILE || new URL('./players.json', import.meta.url).pathname;
-const TICK = 1 / 30, FILL_WAIT = 4, MAX_ROUNDS = 5;
+const TICK = 1 / 30, FILL_WAIT = 2.6, MAX_ROUNDS = 5;
 const BOT_NAMES = ['GooeyGuy', 'jellyking', 'Wobbler', 'SquishyPro', 'gummyfan', 'Blobby', 'noodle42', 'BoingBoing', 'SugarRush', 'pudding_pal'];
 const db = (() => { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch { return { players: {}, banned: [], admins: [] }; } })();
 let dirty = false; setInterval(() => { if (dirty) { dirty = false; fs.writeFile(DB, JSON.stringify(db), () => {}); } }, 5000);
@@ -24,7 +24,7 @@ let uidN = 1; const rooms = new Set(); let queue = [];
 const swapId = (id, k) => (id === k ? 0 : id === 0 ? k : id);
 function newRoom(priv = null) { const r = { id: Math.random().toString(36).slice(2, 8), priv, seats: [], phase: 'lobby', t: 0, round: 0, wins: {}, kos: {}, map: null, sim: null, brains: new Map(), createdAt: Date.now() }; rooms.add(r); return r; }
 const CAP = (r) => (r.priv ? 12 : 4);
-function seatHuman(r, c) { const id = r.seats.length; c.room = r; c.sid = id; r.seats.push({ id, human: c, name: c.name, char: c.char, skin: c.char, weapon: c.weapon, outfit: c.outfit, trophies: c.trophies, ready: false }); broadcastLobby(r); if (r.seats.length === 1) r.fillAt = Date.now() + FILL_WAIT * 1000; }
+function seatHuman(r, c) { const id = r.seats.length; c.room = r; c.sid = id; r.seats.push({ id, human: c, name: c.name, char: c.char, skin: c.char, weapon: c.weapon, outfit: c.outfit, trophies: c.trophies, rookie: (c.matches | 0) < 2, ready: false }); broadcastLobby(r); if (r.seats.length === 1) r.fillAt = Date.now() + rand(1.2, FILL_WAIT) * 1000; }
 function seatBot(r) {
   const id = r.seats.length, used = new Set(r.seats.map((s) => s.name)), name = BOT_NAMES.filter((n) => !used.has(n))[(Math.random() * 6) | 0] || 'Bot' + id;
   const avg = r.seats.reduce((a, s) => a + (s.trophies || 0), 0) / Math.max(1, r.seats.length), maxR = avg < 40 ? 1 : avg < 300 ? 2 : 3;
@@ -42,27 +42,27 @@ function startMatch(r) {
   r.phase = 'vs'; r.t = 2.6;
 }
 function startRound(r) {
-  r.round++; const players = r.seats.map((s) => ({ id: s.id, name: s.name, skin: s.skin, char: s.char, weapon: s.weapon, isMe: false, human: !!s.human }));
+  r.round++; const players = r.seats.map((s) => ({ id: s.id, name: s.name, skin: s.skin, char: s.char, weapon: s.weapon, isMe: false, human: !!s.human, rookie: !!s.rookie && r.round === 1 && !r.priv }));
   const keep = r.sim && r.round > 1 ? Object.fromEntries(r.sim.blobs.map((b) => [b.id, b.sk])) : null;
   r.sim = createSim(players, r.map); for (const b of r.sim.blobs) b.sk = 100;
   r.phase = 'intro'; r.t = r.round === 1 ? 3.6 : 1.8;
   for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'intro', round: r.round, cd: r.t });
 }
-const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT', 'rageT', 'novaGuardT', 'healT', 'cineT', 'pudT', 'burnT'];
+const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT', 'rageT', 'novaGuardT', 'healT', 'cineT', 'pudT', 'burnT', 'ghostT', 'grapeN', 'grapeT', 'comboT', 'frozenT', 'stormT'];
 const r2 = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 function uid(o) { if (!o.uid) o.uid = uidN++; return o.uid; }
 function snapshot(r, k) {
   const s = r.sim, sw = (id) => (id == null ? id : swapId(id, k));
-  const blobs = s.blobs.map((b) => { const o = {}; for (const f of PICK) o[f] = r2(b[f]); o.id = sw(b.id); o.lastHitBy = sw(b.lastHitBy); o.buff = { speed: r2(b.buff.speed), power: r2(b.buff.power), giant: r2(b.buff.giant) }; o.mx = r2(b.input.mx); o.dive = !!b.dive; return o; });
+  const blobs = s.blobs.map((b) => { const o = {}; for (const f of PICK) o[f] = r2(b[f]); o.id = sw(b.id); o.lastHitBy = sw(b.lastHitBy); o.buff = { speed: r2(b.buff.speed), power: r2(b.buff.power), giant: r2(b.buff.giant) }; o.stk = { speed: b.stk?.speed || 0, power: b.stk?.power || 0, giant: b.stk?.giant || 0 }; o.mx = r2(b.input.mx); o.dive = !!b.dive; return o; });
   const sub = (arr, f) => (arr || []).map((o) => { const x = { uid: uid(o) }; for (const k2 of f) x[k2] = r2(o[k2]); if (o.owner != null) x.owner = sw(o.owner); return x; });
   return { t: 's', st: r2(s.t), sudden: s.sudden, R: r2(s.R), sweepA: r2(s.sweepA), blobs,
-    proj: (s.proj || []).map((p) => ({ uid: uid(p), x: r2(p.x), y: r2(p.y), z: r2(p.z), vx: r2(p.vx), vz: r2(p.vz), lob: p.lob, boom: p.boom, w: p.w.id, owner: sw(p.owner) })),
-    rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life']), vortex: sub(s.vortex, ['x', 'z', 't', 'life', 'cine', 'meteor']),
+    proj: (s.proj || []).map((p) => ({ uid: uid(p), x: r2(p.x), y: r2(p.y), z: r2(p.z), vx: r2(p.vx), vz: r2(p.vz), lob: p.lob, boom: p.boom, w: p.w.id, owner: sw(p.owner), sc: p.sc && p.sc !== 1 ? r2(p.sc) : undefined })),
+    rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life', 'gum']), vortex: sub(s.vortex, ['x', 'z', 't', 'life', 'cine', 'meteor']),
     gifts: sub(s.gifts, ['id', 'x', 'z', 'kind', 'y', 't']),
     ev: s.events.map((e) => { const o = { ...e }; for (const f of ['b', 'a', 'by', 'winner']) if (o[f] != null) o[f] = sw(o[f]); return o; }) };
 }
 function tickRoom(r, dt) {
-  if (r.phase === 'lobby') { const humans = r.seats.filter((s) => s.human).length; if (!r.priv && (humans >= 4 || (humans && Date.now() > r.fillAt))) { if (Date.now() > (r.nextBot || 0)) { if (r.seats.length < 4) { seatBot(r); r.nextBot = Date.now() + rand(250, 700); } else startMatch(r); } } return; }
+  if (r.phase === 'lobby') { const humans = r.seats.filter((s) => s.human).length; if (!r.priv && (humans >= 4 || (humans && Date.now() > r.fillAt))) { if (Date.now() > (r.nextBot || 0)) { if (r.seats.length < 4) { seatBot(r); r.nextBot = Date.now() + rand(550, 1500) + (Math.random() < 0.2 ? rand(300, 900) : 0); } else startMatch(r); } } return; }
   if (r.phase === 'vs') { r.t -= dt; if (r.t <= 0) startRound(r); return; }
   if (r.phase === 'intro') { r.t -= dt; if (r.t <= 0) { r.phase = 'play'; for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'play' }); } }
   const s = r.sim; s.events = [];
@@ -124,7 +124,7 @@ wss.on('connection', (ws) => {
     if (m.t === 'hello') {
       Object.assign(c, { name: clean(m.name), char: CHARS.some((x) => x.id === m.char) ? m.char : 'berry', weapon: WEAPONS.some((w) => w.id === m.weapon) ? m.weapon : 'mallet', outfit: typeof m.outfit === 'object' ? m.outfit : {}, trophies: Math.max(0, Math.min(99999, m.trophies | 0)) });
       if (db.banned.includes(c.name)) { send(c, { t: 'banned' }); ws.close(); return; }
-      const p = db.players[c.name] ||= { name: c.name, trophies: 0, wins: 0, matches: 0, first: Date.now() }; Object.assign(p, { trophies: c.trophies, wins: m.wins | 0, matches: m.matches | 0, last: Date.now() }); dirty = true;
+      const p = db.players[c.name] ||= { name: c.name, trophies: 0, wins: 0, matches: 0, first: Date.now() }; Object.assign(p, { trophies: c.trophies, wins: m.wins | 0, matches: m.matches | 0, last: Date.now() }); c.matches = m.matches | 0; dirty = true;
       send(c, { t: 'welcome', online: clients.size });
     } else if (m.t === 'queue') { leave(c); const code = m.room ? String(m.room).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : null;
       let r = code ? [...rooms].find((x) => x.priv === code) : findPublicRoom();
