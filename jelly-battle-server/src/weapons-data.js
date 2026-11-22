@@ -10,7 +10,7 @@ export const WEAPONS = [
     desc: 'Rapid jellybean shots from afar.' },
   { id: 'spear', rarity: 'rare', name: 'Candy Cane Spear', type: 'thrust', price: 250, dmg: 20, kb: 11, cd: 0.55, wind: 0.13, reach: 2.6, stun: 0.22,
     desc: 'Long poke. Keep them at a distance.' },
-  { id: 'daggers', rarity: 'common', name: 'Candy Shiv', type: 'swing', price: 300, dmg: 27, kb: 9, cd: 0.2, wind: 0.05, reach: 1.75, arc: 1.0, stun: 0.08,
+  { id: 'daggers', rarity: 'common', name: 'Candy Shiv', type: 'swing', price: 300, dmg: 27, kb: 6, cd: 0.2, wind: 0.05, reach: 1.75, arc: 1.0, stun: 0.08,
     desc: 'Super fast stabs. Stay close.' },
   { id: 'pan', rarity: 'rare', name: 'Choco Pan', type: 'swing', price: 350, dmg: 38, kb: 11, cd: 0.45, wind: 0.13, reach: 1.45, arc: 1.2, stun: 0.75,
     desc: 'BONG! Long stun on every hit.' },

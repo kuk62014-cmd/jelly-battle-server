@@ -42,7 +42,7 @@ export function createSim(players, map) {
         if (best) [x, z] = best; }
       s0.push([x, z]);
       return {
-        id: p.id, idx: i, human: !!(p.isMe || p.human), rookie: !!p.rookie, dummy: !!p.dummy, x, z, vx: 0, vz: 0, y: 0, vy: 0, r: C.R_BODY,
+        id: p.id, idx: i, human: !!(p.isMe || p.human), dummy: !!p.dummy, x, z, vx: 0, vz: 0, y: 0, vy: 0, r: C.R_BODY,
         face: Math.atan2(-x, -z), hp: C.HP, alive: true, falling: false, air: false,
         w: WMAP[p.weapon] || WMAP.mallet, ch: CMAP[p.char] || CMAP.berry, sk: 30, skillT: 0, slowT: 0, shieldT: 0, rushT: 0, rushHit: null, fizz: false, prevSkill: false, atkT: -1, fired: false, atkCd: 0.3, dashT: 0, dashCd: 0, stun: 0, padCd: 0, inv: 0,
         input: { mx: 0, mz: 0, ax: 0, az: 0, aim: false, atk: false, dash: false, skill: false }, prevDash: false,
@@ -110,7 +110,7 @@ function grapePop(s, o) {
 function aoe(s, b, r, dmg, kb, stun, kind, extra) {
   for (const o of s.blobs) { if (o === b || !o.alive || o.falling) continue; if (Math.hypot(o.x - b.x, o.z - b.z) < r + o.r) { damage(s, b, o, dmg, o.x - b.x, o.z - b.z, kb, stun, kind); extra?.(o); } }
 }
-function castSkill(s, b) {
+export function castSkill(s, b) {
   const m = RARITY[b.ch.rarity].mul, id = b.ch.skill.id, fx = Math.sin(b.face), fz = Math.cos(b.face);
   b.sk = 0; b.skillT = 0.6; b.armorT = id === 'rush' ? 0.7 : 0.9;   // brief super-armor so skills don't get interrupted
   s.events.push({ type: 'skill', b: b.id, id, x: b.x, z: b.z, y: b.y || 0 });
@@ -192,9 +192,9 @@ function fire(s, b) {
     if (best) { tx = best.x + best.vx * 0.15; tz = best.z + best.vz * 0.15; } else if (b.input.aim && b.input.ad) { const d = Math.min(7.5, b.input.ad); tx = b.x + fx * d; tz = b.z + fz * d; }
     const td = Math.hypot(tx - b.x, tz - b.z);
     if (b.stormT > 0) {   // storm charged: a colossal bolt on the smash point, big radius, 1s stun
-      b.stormT = 0; const cx = b.x + fx * (b.r + w.reach * 0.7 * gs), cz = b.z + fz * (b.r + w.reach * 0.7 * gs), R = 4.2 * gs;
+      b.stormT = 0; const cx = b.x + fx * (b.r + w.reach * 0.7 * gs), cz = b.z + fz * (b.r + w.reach * 0.7 * gs), R = 5.2 * gs;
       s.events.push({ type: 'megaBolt', b: b.id, x: cx, z: cz, r: R });
-      for (const o of live) if (o !== b && Math.hypot(o.x - cx, o.z - cz) < R + o.r) { damage(s, b, o, w.dmg * 1.7, o.x - cx || 0.01, o.z - cz || 0.01, w.kb * 1.45, 1.0, 'slam'); o.stun = Math.max(o.stun, 1.0); }
+      for (const o of live) if (o !== b && Math.hypot(o.x - cx, o.z - cz) < R + o.r) { o.inv = 0; damage(s, b, o, w.dmg * 1.9, o.x - cx || 0.01, o.z - cz || 0.01, w.kb * 1.7, 1.0, 'crit'); o.stun = Math.max(o.stun, 1.1); o.vy = 7; o.air = true; }
       return; }
     if (td <= b.r + w.reach + 0.7) {   // close: smash + a bolt right on the impact
       const cx = b.x + fx * (b.r + w.reach * 0.65 * gs), cz = b.z + fz * (b.r + w.reach * 0.65 * gs);
@@ -466,9 +466,6 @@ export function step(s, dt) {
 
   // gift boxes
   s.giftT -= dt;
-  { const rk = !s.rgDone && s.t > 4 && s.blobs.find((q) => q.rookie && q.alive && !q.falling);   // a brand-new player's first round: a GIANT box drops right next to them
-    if (rk) { s.rgDone = true; let gx = rk.x + Math.sin(rk.face) * 2.2, gz = rk.z + Math.cos(rk.face) * 2.2; const d = Math.hypot(gx, gz), lim = s.R * 0.72; if (d > lim) { gx *= lim / d; gz *= lim / d; }
-      const tmp = { x: gx, z: gz, vx: 0, vz: 0 }; collideStatic(s, tmp, 0.7); s.gifts.push({ id: Math.random(), x: tmp.x, z: tmp.z, kind: 'giant', t: 0 }); s.events.push({ type: 'giftSpawn', x: tmp.x, z: tmp.z }); } }
   if (s.giftT <= 0 && s.gifts.length < 2) {
     s.giftT = C.GIFT_EVERY + Math.random() * 4;
     const sp = freeSpot(s.map, s.col, 0.9, 0.7);

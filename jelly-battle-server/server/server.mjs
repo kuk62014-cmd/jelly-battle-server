@@ -24,14 +24,15 @@ let uidN = 1; const rooms = new Set(); let queue = [];
 const swapId = (id, k) => (id === k ? 0 : id === 0 ? k : id);
 function newRoom(priv = null) { const r = { id: Math.random().toString(36).slice(2, 8), priv, seats: [], phase: 'lobby', t: 0, round: 0, wins: {}, kos: {}, map: null, sim: null, brains: new Map(), createdAt: Date.now() }; rooms.add(r); return r; }
 const CAP = (r) => (r.priv ? 12 : 4);
-function seatHuman(r, c) { const id = r.seats.length; c.room = r; c.sid = id; r.seats.push({ id, human: c, name: c.name, char: c.char, skin: c.char, weapon: c.weapon, outfit: c.outfit, trophies: c.trophies, rookie: (c.matches | 0) < 2, ready: false }); broadcastLobby(r); if (r.seats.length === 1) r.fillAt = Date.now() + rand(1.2, FILL_WAIT) * 1000; }
+function seatHuman(r, c) { const id = r.seats.length; c.room = r; c.sid = id; r.seats.push({ id, human: c, name: c.name, char: c.char, skin: c.char, weapon: c.weapon, outfit: c.outfit, trophies: c.trophies, ready: false }); broadcastLobby(r); if (r.seats.length === 1) r.fillAt = Date.now() + rand(1.2, FILL_WAIT) * 1000; }
 function seatBot(r) {
   const id = r.seats.length, used = new Set(r.seats.map((s) => s.name)), name = BOT_NAMES.filter((n) => !used.has(n))[(Math.random() * 6) | 0] || 'Bot' + id;
   const avg = r.seats.reduce((a, s) => a + (s.trophies || 0), 0) / Math.max(1, r.seats.length), maxR = avg < 40 ? 1 : avg < 300 ? 2 : 3;
   const ch = CHARS.filter((c) => ['common', 'rare', 'epic', 'legendary'].indexOf(c.rarity) < maxR + 1 && !r.seats.some((s) => s.char === c.id)); const c = ch[(Math.random() * ch.length) | 0] || CHARS[0];
   const ws = WEAPONS.filter((w) => w.price <= (avg < 40 ? 0 : 150 + avg)); const w = ws[(Math.random() * ws.length) | 0] || WEAPONS[0];
   r.seats.push({ id, bot: true, name, char: c.id, skin: c.id, weapon: w.id, outfit: {}, trophies: Math.max(0, Math.round(avg + rand(-60, 60))) });
-  r.brains.set(id, Object.assign(makeBotBrain(Math.max(0.1, Math.min(0.85, 0.25 + avg / 1200))), { aggr: 0.6 + avg / 2000 })); broadcastLobby(r);
+  const mm = Math.min(...r.seats.filter((x) => x.human).map((x) => x.human.matches | 0), 99), rook = [0.2, 0.18, 0.14, 0.11, 0.08, 0.06, 0.04, 0.02][mm] ?? 0;   // newcomers in the room -> gentler bots
+  r.brains.set(id, Object.assign(makeBotBrain(Math.max(0.08, Math.min(0.85, 0.25 + avg / 1200 - rook))), { aggr: Math.max(0.3, 0.6 + avg / 2000 - rook * 1.5) })); broadcastLobby(r);
 }
 function lobbyInfo(r, k) { return r.seats.map((s) => ({ id: swapId(s.id, k), name: s.name, char: s.char, weapon: s.weapon, trophies: s.trophies, bot: !!s.bot, outfit: s.outfit, ready: !!s.ready, host: s.id === 0 })); }
 function broadcastLobby(r) { for (const s of r.seats) if (s.human) send(s.human, { t: 'lobby', room: r.id, code: r.priv, priv: !!r.priv, cap: CAP(r), host: s.id === 0, players: lobbyInfo(r, s.id) }); }
@@ -42,7 +43,7 @@ function startMatch(r) {
   r.phase = 'vs'; r.t = 2.6;
 }
 function startRound(r) {
-  r.round++; const players = r.seats.map((s) => ({ id: s.id, name: s.name, skin: s.skin, char: s.char, weapon: s.weapon, isMe: false, human: !!s.human, rookie: !!s.rookie && r.round === 1 && !r.priv }));
+  r.round++; const players = r.seats.map((s) => ({ id: s.id, name: s.name, skin: s.skin, char: s.char, weapon: s.weapon, isMe: false, human: !!s.human, }));
   const keep = r.sim && r.round > 1 ? Object.fromEntries(r.sim.blobs.map((b) => [b.id, b.sk])) : null;
   r.sim = createSim(players, r.map); for (const b of r.sim.blobs) b.sk = 100;
   r.phase = 'intro'; r.t = r.round === 1 ? 3.6 : 1.8;
