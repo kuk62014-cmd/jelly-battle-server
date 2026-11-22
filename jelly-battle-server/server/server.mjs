@@ -89,12 +89,15 @@ function endMatch(r) {
 }
 function leave(c) {
   const r = c.room; if (!r) return; c.room = null; const seat = r.seats.find((s) => s.human === c); if (!seat) return;
-  if (r.phase === 'lobby') { r.seats = r.seats.filter((s) => s !== seat); r.seats.forEach((s, i) => { s.id = i; if (s.human) s.human.sid = i; }); if (!r.seats.some((s) => s.human)) rooms.delete(r); else broadcastLobby(r); return; }
+  if (r.phase === 'lobby') { r.seats = r.seats.filter((s) => s !== seat); r.seats.forEach((s, i) => { s.id = i; if (s.human) s.human.sid = i; }); if (!r.seats.some((s) => s.human)) { if (r.priv) r.emptyAt = Date.now(); else rooms.delete(r); } else broadcastLobby(r); return; }   // private rooms wait 3 min for the host/friends to come back
   seat.human = null; seat.bot = true; r.brains.set(seat.id, makeBotBrain(0.4));   // a bot takes over mid-match
   if (!r.seats.some((s) => s.human)) rooms.delete(r);
 }
 function findPublicRoom() { for (const r of rooms) if (!r.priv && r.phase === 'lobby' && r.seats.length < 4) return r; return newRoom(); }
-setInterval(() => { for (const r of rooms) { try { tickRoom(r, TICK); } catch (e) { console.error('room error', e); rooms.delete(r); } } }, TICK * 1000);
+setInterval(() => { const now = Date.now(); for (const r of rooms) if (r.priv && !r.seats.length && now - (r.emptyAt || now) > 180000) rooms.delete(r); }, 10000);
+// keep idle sockets (room lobby, menus) alive through proxies that cut silent connections
+setInterval(() => { for (const c of clients) { try { c.ws.ping(); } catch { /* closed */ } } }, 25000);   // traffic only; never drop a slow/backgrounded player
+setInterval(() => { for (const r of rooms) { if (!r.seats.length) continue; try { tickRoom(r, TICK); } catch (e) { console.error('room error', e); rooms.delete(r); } } }, TICK * 1000);
 
 // ---------- network ----------
 function send(c, m) { if (c?.ws.readyState === 1) c.ws.send(JSON.stringify(m)); }
@@ -129,8 +132,8 @@ wss.on('connection', (ws) => {
       send(c, { t: 'welcome', online: clients.size });
     } else if (m.t === 'queue') { leave(c); const code = m.room ? String(m.room).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : null;
       let r = code ? [...rooms].find((x) => x.priv === code) : findPublicRoom();
-      if (code && !r) { if (m.join) { send(c, { t: 'noroom' }); return; } r = newRoom(code); }
-      if (r.phase !== 'lobby' || r.seats.length >= CAP(r)) { send(c, { t: r.phase !== 'lobby' ? 'busy' : 'full' }); return; } seatHuman(r, c); }
+      if (code && !r) { if (m.join && !m.link) { send(c, { t: 'noroom' }); return; } r = newRoom(code); }   // an invite LINK re-opens its room if it timed out, so the friend waits there for the host
+      if (r.phase !== 'lobby' || r.seats.length >= CAP(r)) { send(c, { t: r.phase !== 'lobby' ? 'busy' : 'full' }); return; } r.emptyAt = 0; seatHuman(r, c); }
     else if (m.t === 'ready') { const r = c.room, st = r?.seats.find((x) => x.human === c); if (st && r.phase === 'lobby') { st.ready = !!m.on; broadcastLobby(r); } }
     else if (m.t === 'loadout') { const r = c.room, st = r?.seats.find((x) => x.human === c); if (CHARS.some((x) => x.id === m.char)) c.char = m.char; if (WEAPONS.some((w) => w.id === m.weapon)) c.weapon = m.weapon; if (m.outfit && typeof m.outfit === 'object') c.outfit = m.outfit;
       if (st && r.phase === 'lobby') { Object.assign(st, { char: c.char, skin: c.char, weapon: c.weapon, outfit: c.outfit }); broadcastLobby(r); } }
