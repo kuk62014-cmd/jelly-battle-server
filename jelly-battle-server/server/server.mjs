@@ -66,7 +66,7 @@ function tickRoom(r, dt) {
   if (r.phase === 'lobby') { const humans = r.seats.filter((s) => s.human).length; if (!r.priv && (humans >= 4 || (humans && Date.now() > r.fillAt))) { if (Date.now() > (r.nextBot || 0)) { if (r.seats.length < 4) { seatBot(r); r.nextBot = Date.now() + rand(550, 1500) + (Math.random() < 0.2 ? rand(300, 900) : 0); } else startMatch(r); } } return; }
   if (r.phase === 'vs') { r.t -= dt; if (r.t <= 0) startRound(r); return; }
   if (r.phase === 'intro') { r.t -= dt; if (r.t <= 0) { r.phase = 'play'; for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'play' }); } }
-  const s = r.sim; s.events = [];
+  const s = r.sim; if (!s) return; s.events = [];
   if (r.phase === 'play' || r.phase === 'roundEnd') {
     const meOut = s.blobs.filter((b) => b.human && b.alive && !b.falling).length === 0; s.hurry = meOut;
     for (const seat of r.seats) { const b = s.blobs[seat.id]; if (seat.human && seat.human.inp && r.phase === 'play') Object.assign(b.input, seat.human.inp); else if (!seat.human) { const br = r.brains.get(seat.id) || r.brains.set(seat.id, makeBotBrain(0.4)).get(seat.id); botThink(br, b, s, dt, { playerId: null, countTargeting: () => 0 }); if (r.phase === 'roundEnd') b.input.atk = false; } }
@@ -75,7 +75,7 @@ function tickRoom(r, dt) {
       for (const seat of r.seats) if (seat.human) send(seat.human, { t: 'phase', phase: 'roundEnd', winner: w == null ? null : swapId(w, seat.id), wins: Object.fromEntries(Object.entries(r.wins).map(([id, v]) => [swapId(+id, seat.id), v])) }); }
     else if (r.phase === 'roundEnd' && (r.t -= dt) <= 0) {
       const champ = r.seats.find((x) => r.wins[x.id] >= 2);
-      if (champ || r.round >= MAX_ROUNDS) endMatch(r); else startRound(r);
+      if (champ || r.round >= MAX_ROUNDS) { endMatch(r); return; } startRound(r);   // endMatch nulls a private room's sim: never snapshot it afterwards (that crash deleted the room -> next match froze in VS)
     }
   }
   r.snapN = (r.snapN || 0) + 1; const humans = r.seats.filter((x) => x.human).length;
@@ -130,6 +130,7 @@ wss.on('connection', (ws) => {
       if (db.banned.includes(c.name)) { send(c, { t: 'banned' }); ws.close(); return; }
       const p = db.players[c.name] ||= { name: c.name, trophies: 0, wins: 0, matches: 0, first: Date.now() }; Object.assign(p, { trophies: c.trophies, wins: m.wins | 0, matches: m.matches | 0, last: Date.now() }); c.matches = m.matches | 0; dirty = true;
       send(c, { t: 'welcome', online: clients.size });
+    } else if (m.t === 'cerr') { if ((c.errs = (c.errs || 0) + 1) <= 8) console.log('CLIENT ERROR', c.name, m.w, m.st, m.on, String(m.m || '').slice(0, 700));   // client crash reports land in the Render log
     } else if (m.t === 'queue') { leave(c); const code = m.room ? String(m.room).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6) : null;
       let r = code ? [...rooms].find((x) => x.priv === code) : findPublicRoom();
       if (code && !r) { if (m.join && !m.link) { send(c, { t: 'noroom' }); return; } r = newRoom(code); }   // an invite LINK re-opens its room if it timed out, so the friend waits there for the host
