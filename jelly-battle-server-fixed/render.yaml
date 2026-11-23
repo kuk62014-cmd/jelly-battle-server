@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: jelly-battle-server
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: ADMIN_CODE
+        generateValue: true
