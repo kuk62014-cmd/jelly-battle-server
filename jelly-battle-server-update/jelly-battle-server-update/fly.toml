@@ -1,0 +1,12 @@
+app = "jelly-battle-server"
+primary_region = "ams"
+[build]
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = "off"
+  min_machines_running = 1
+[[http_service.checks]]
+  path = "/health"
+  interval = "15s"
+  timeout = "3s"
