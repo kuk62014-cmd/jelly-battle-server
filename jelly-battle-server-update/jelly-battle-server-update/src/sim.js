@@ -24,7 +24,7 @@ function weaponKill(s, a) { if (!a || !a.alive || a.falling) return;
   else if (a.w.id === 'thunder') { a.stormT = 20; s.events.push({ type: 'storm', b: a.id }); } }
 // ---------- JELLY MASS: hits knock jelly off you, eat it to grow ----------
 // bigger = harder hits, longer reach, shrugs off knockback, but slower. smaller = quicker, but light: hits less and flies further.
-export const MASS = { MIN: 0.65, MAX: 99, LOSS: 0.0022, HIT_CAP: 0.045, LIFE: 9, EAT_DELAY: 0.6 };
+export const MASS = { MIN: 0.65, MAX: 99, LOSS: 0.0022, HIT_CAP: 0.045, LIFE: 12, EAT_DELAY: 0.6 };
 const MS = (b) => (b && b.m) || 1;
 // no size cap: power uses a log curve, so each extra bite still matters but a huge jelly never becomes untouchable
 export const massEff = (m) => { m = m || 1; return m <= 1 ? m : 1 + Math.log(m) * 0.9; };
@@ -89,9 +89,10 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   // they only nibble at you while you learn, then fight for real in the final 'KO them all' phase
   const botVsBot = s.tut && a && !a.human && !o.human, botVsYou = s.tut && a && !a.human && o.human;
   if (o.dummy) { o.hp = C.HP + dmg; o.dummyT = 0; }   // the sandbag soaks everything
-  const tutK = !s.tut ? 1 : botVsBot ? 0.25 : botVsYou ? (s.tutPhase === 'final' ? 0.8 : 0.2) : a?.human ? 1.25 : 1;
+  const tutK = !s.tut ? 1 : botVsBot ? 0.25 : botVsYou ? (s.tutPhase === 'final' ? 0.42 : 0.2) : a?.human ? 1.25 : 1;
   if (botVsBot && o.hp - dmg * tutK < 25) return;
-  const d = dmg * pw * sd * sh * syn * (crit ? 1.6 : 1) * tutK * (a && a !== o ? mDmg(a) : 1);
+  const easy = a && !a.human && o.human ? 1 - 0.45 * (s.assist || 0) : 1;   // rookie assist (offline only): bots hit new players softer
+  const d = dmg * pw * sd * sh * syn * (crit ? 1.6 : 1) * tutK * easy * (a && a !== o ? mDmg(a) : 1);
   if (o.novaGuardT > 0 && a && a !== o && wpn && Math.hypot(a.x - o.x, a.z - o.z) < 3.4) { const m = RARITY[o.ch.rarity].mul; damage(s, o, a, 4.5 * m, a.x - o.x, a.z - o.z, 8, 0.25, 'thorn'); s.events.push({ type: 'novaZap', b: o.id, a: a.id, x: a.x, z: a.z }); }   // Star Guard zaps whoever punches it
   o.hp -= d;
   o.sk = Math.min(100, o.sk + d * 0.42 * (100 / (o.ch.skill.charge || 100)));
@@ -101,7 +102,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   const k = kb * low * res * (a && a.buff.power > 0 ? 1.3 : 1) * (a && a.buff.giant > 0 ? 1.25 + 0.1 * (STK(a, 'giant') - 1) : 1) * (s.sudden ? 1.25 : 1) * (a && a !== o ? mKbOut(a) : 1) * mKbIn(o);
   const fair = a && a.human && !o.human ? 1.2 : 1;   // humans hit bots a bit harder: crunchier, more satisfying
   const l = Math.hypot(dx, dz) || 1;
-  const tk = botVsBot || (botVsYou && s.tutPhase !== 'final') ? 0.35 : 1;
+  const tk = (botVsBot || (botVsYou && s.tutPhase !== 'final') ? 0.35 : botVsYou ? 0.6 : 1) * (a && !a.human && o.human ? 1 - 0.45 * (s.assist || 0) : 1);
   o.vx = o.vx * 0.2 + (dx / l) * k * fair * tk; o.vz = o.vz * 0.2 + (dz / l) * k * fair * tk;
   if (k > 11) { o.vy = o.bounces > 0 ? Math.max(o.vy, 3.5) : 3.5; o.air = true; }   // Mochi keeps hopping even when smacked mid-skill
   if (o.armorT > 0) stun = 0;
@@ -109,7 +110,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
   if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
   if (a && o.alive && kind !== 'skill' && kind !== 'hazard' && kind !== 'boom') weaponPerk(s, a, o, kind);
-  if (a && a !== o && kind !== 'hazard' && !o.dummy && !botVsBot) { const loss = Math.min(MS(o) - MASS.MIN, d * MASS.LOSS * (0.75 + 0.25 * MS(o)) * (o.growT > 0 ? 0 : 1), MASS.HIT_CAP); if (loss > 0.004) { o.m = MS(o) - loss; dropJelly(s, o, loss, dx, dz); } }
+  if (a && a !== o && kind !== 'hazard' && !o.dummy && !botVsBot) { const loss = Math.min(MS(o) - MASS.MIN, d * MASS.LOSS * (0.75 + 0.25 * MS(o)) * (o.growT > 0 ? 0 : 1), MASS.HIT_CAP); if (loss > 0.004) { o.m = MS(o) - loss; dropJelly(s, o, loss, dx, dz); } else dropJelly(s, o, 0.024, dx, dz); }
   s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit, mochi: !!mochiCrit || undefined, combo: combo || undefined });
   if (o.hp <= 0) {
     o.alive = false; o.hp = 0;
@@ -519,7 +520,7 @@ export function step(s, dt) {
     if (Math.hypot(g.x, g.z) > s.R + 0.3) { g.gone = true; continue; }
     if (g.t < MASS.EAT_DELAY) continue;
     for (const b of s.blobs) { if (!b.alive || b.falling || (b.id === g.src && g.t < 1.6) || (s.tut && !b.human)) continue;
-      if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.42) { const before = MS(b); const hp0 = maxHpOf(b); b.m = Math.min(MASS.MAX, before + g.v * 1.9); b.growT = 5; b.hp += maxHpOf(b) - hp0; if (!s.sudden && s.t < 35) b.hp = Math.min(maxHpOf(b), b.hp + g.v * 120); g.gone = true; s.events.push({ type: 'eat', b: b.id, x: g.x, z: g.z, m: Math.round(b.m * 100) / 100, gain: Math.round((b.m - before) * 100) }); break; } }
+      if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.42) { const before = MS(b); const hp0 = maxHpOf(b); b.m = Math.min(MASS.MAX, before + g.v * 1.9); b.growT = 5; b.hp += maxHpOf(b) - hp0; if (!s.sudden && s.t < 35) b.hp = Math.min(maxHpOf(b), b.hp + 5 + g.v * 160); g.gone = true; s.events.push({ type: 'eat', b: b.id, x: g.x, z: g.z, m: Math.round(b.m * 100) / 100, gain: Math.round((b.m - before) * 100) }); break; } }
     if (g.t > MASS.LIFE && !s.tut) g.gone = true;   // tutorial beads wait for you
   }
   s.drops = s.drops.filter((g) => !g.gone);

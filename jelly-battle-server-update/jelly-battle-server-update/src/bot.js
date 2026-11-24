@@ -192,7 +192,8 @@ function decide(br, me, s, opts) {
     if (opts.onlyId != null && o.id !== opts.onlyId) continue;   // tutorial: leave the learner alone
     const d = Math.hypot(o.x - me.x, o.z - me.z);
     let sc = br.aggr * (2.4 / (1 + d * 0.3)) * (1 + (1 - o.hp / 100) * 0.9);
-    if (o.id === opts.playerId) sc *= nPlayer >= 1 && br.target !== o ? 0.55 : 0.95;   // don't dogpile the human
+    if (o.id === opts.playerId) sc *= nPlayer >= 1 && br.target !== o ? (br.skill < 0.3 ? 0.3 : 0.55) : 0.95;   // don't dogpile the human (rookie bots almost never gang up)
+    if (o.id === opts.playerId && (opts.playerIdle || 0) > 2.5 && (nPlayer < 1 || br.target === o)) sc *= 2.6;   // a player standing still gets visited: nobody is ever left out of the brawl
     if (!br.pref || (br.prefT -= 0.2) < 0) { br.pref = new Map(); br.prefT = rand(4, 8); }
     if (!br.pref.has(o.id)) br.pref.set(o.id, rand(0.7, 1.35));
     sc *= br.pref.get(o.id);
@@ -202,7 +203,7 @@ function decide(br, me, s, opts) {
   }
   if (best?.kind === 'enemy' && best.o !== br.target) { br.commitT = rand(1.8, 3.6); br.reactT = rand(0.18, 0.5) * (1.35 - br.skill); }
   if (!best) { br.mode = 'idle'; br.target = null; if (br.wanderT <= 0 || !br.goal) { const a = Math.random() * 6.28, r = Math.random() * s.R * 0.5; br.goal = { x: Math.cos(a) * r, z: Math.sin(a) * r }; br.wanderT = rand(1.5, 3); } return; }
-  if (best.kind === 'gift') { br.mode = 'gift'; br.goal = { x: best.g.x, z: best.g.z }; if (!br.target) br.target = null; return; }
+  if (best.kind === 'gift') { br.mode = 'gift'; br.goal = { x: best.g.x, z: best.g.z }; br.target = null; return; }
 
   const o = best.o, d = best.d || 1e-3; br.target = o; br.mode = 'fight';
   const ux = (o.x - me.x) / d, uz = (o.z - me.z) / d;
