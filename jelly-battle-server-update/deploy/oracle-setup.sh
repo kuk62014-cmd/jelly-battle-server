@@ -4,7 +4,7 @@
 # Result: always-on server at  wss://<your-ip-with-dashes>.sslip.io  (free HTTPS via Let's Encrypt, no domain needed)
 set -euo pipefail
 REPO="${1:-https://github.com/kuk62014-cmd/jelly-battle-server.git}"
-ADMIN_CODE="${ADMIN_CODE:-1695}"
+ADMIN_CODE="${ADMIN_CODE:-$(head -c 16 /dev/urandom | od -An -tx1 | tr -d " \n")}"
 IP="$(curl -fsS https://api.ipify.org)"; HOST="${IP//./-}.sslip.io"
 echo ">> public IP $IP  →  $HOST"
 

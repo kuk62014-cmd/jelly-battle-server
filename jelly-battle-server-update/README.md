@@ -21,7 +21,7 @@ plays offline against bots (everything else still works).
 
 ## Settings (environment variables)
 - `PORT` (default 8787)
-- `ADMIN_CODE` admin API key (default 1695, change it!) - the in-game admin panel uses it via the `x-admin` header
+- `ADMIN_CODE` admin API key (default <your-secret>, change it!) - the in-game admin panel uses it via the `x-admin` header
 - `DB_FILE` where the player list is stored (default `server/players.json`)
 
 Health check: `GET /health`. Admin: `GET /api/players`, `POST /api/ban {name}`, `POST /api/unban {name}`.

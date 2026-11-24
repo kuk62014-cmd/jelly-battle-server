@@ -181,6 +181,11 @@ function decide(br, me, s, opts) {
     const sc = (g.kind === 'heal' && me.hp < 60 ? 3.2 : 1.6) / (1 + d * 0.3);
     if (sc > bestScore) { bestScore = sc; best = { kind: 'gift', g }; }
   }
+  for (const g of s.tut ? [] : s.drops || []) {   // jelly beads: worth a detour when nobody is in your face, and more so when you're small
+    if (g.t < 0.3 || (g.src === me.id && g.t < 1.2)) continue; const d = Math.hypot(g.x - me.x, g.z - me.z); if (d > 6) continue;
+    const sc = (1.1 + (1.3 - (me.m || 1)) * 1.2) * Math.min(1.2, g.v / 0.03) * 0.55 / (1 + d * 0.5);
+    if (sc > bestScore) { bestScore = sc; best = { kind: 'gift', g }; }
+  }
   const nPlayer = opts.countTargeting && opts.playerId != null ? opts.countTargeting(opts.playerId) : 0;
   for (const o of live) {
     if (opts.ignoreId != null && o.id === opts.ignoreId) continue;

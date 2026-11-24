@@ -1,7 +1,7 @@
 // Pure game simulation (no rendering). Runs identically on a future authoritative server.
 import { WMAP } from './weapons-data.js';
 import { buildColliders, freeSpot } from './maps-data.js';
-import { CMAP, RARITY } from './chars-data.js';
+import { CMAP, RARITY, CHARS } from './chars-data.js';
 
 export const C = {
   R_BODY: 0.62, HP: 170, SPEED: 7, DAMP: 7.5, STUN_DAMP: 2.2,
@@ -22,12 +22,27 @@ function weaponPerk(s, a, o, kind) { const id = a.w.id;
 function weaponKill(s, a) { if (!a || !a.alive || a.falling) return;
   if (a.w.id === 'scythe') { a.ghostT = 3; s.events.push({ type: 'ghost', b: a.id }); }
   else if (a.w.id === 'thunder') { a.stormT = 20; s.events.push({ type: 'storm', b: a.id }); } }
+// ---------- JELLY MASS: hits knock jelly off you, eat it to grow ----------
+// bigger = harder hits, longer reach, shrugs off knockback, but slower. smaller = quicker, but light: hits less and flies further.
+export const MASS = { MIN: 0.65, MAX: 1.8, LOSS: 0.0022, HIT_CAP: 0.045, LIFE: 9, EAT_DELAY: 0.6 };
+const MS = (b) => (b && b.m) || 1;
+export const massVis = (m) => 0.6 + 0.4 * (m || 1);   // body scale (also used by the renderer)
+const mReach = (b) => 0.84 + 0.16 * MS(b), mDmg = (b) => 0.8 + 0.2 * MS(b), mSpd = (b) => 1.2 - 0.2 * MS(b), mKbOut = (b) => 0.74 + 0.26 * MS(b), mKbIn = (b) => 1.38 - 0.38 * MS(b);
+function dropJelly(s, o, amt, dx, dz, burst = false) {   // hit: beads squirt back toward the hitter (your reward); KO: they spray all around
+  const n = Math.max(burst ? 6 : 2, Math.min(burst ? 14 : 6, Math.round(amt / 0.02))), l = Math.hypot(dx, dz) || 1;   // always a visible handful
+  for (let i = 0; i < n; i++) { const a = burst ? (i / n) * Math.PI * 2 + Math.random() * 0.5 : Math.atan2(-dz / l, -dx / l) + (Math.random() - 0.5) * 2.0, v = burst ? 3.5 + Math.random() * 3.5 : 3.6 + Math.random() * 2.4;
+    s.drops.push({ uid: ++s.dropN, x: o.x, y: 0.7, z: o.z, vx: Math.cos(a) * v + o.vx * 0.15, vz: Math.sin(a) * v + o.vz * 0.15, vy: 4 + Math.random() * 3, v: amt / n, t: 0, cid: o.cidx ?? 0, src: o.id }); }
+}
+export function spawnDrops(s, x, z, n, v, cid, src, dx = 0, dz = 1) {   // tutorial helper: a little pile of beads to practise eating
+  for (let i = 0; i < n; i++) { const a = Math.atan2(dz, dx) + (i - (n - 1) / 2) * 0.7, sp = 1.6 + Math.random() * 1.2;
+    s.drops.push({ uid: ++s.dropN, x, y: 0.7, z, vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: 4.5, v, t: 0, cid, src }); }
+}
 const NOINP = { mx: 0, mz: 0, atk: false, skill: false, dash: false, jump: false, aim: false, ax: 0, az: 0 };
 export function createSim(players, map) {
   const col = buildColliders(map);
   const n = players.length, s0 = [];
   return {
-    t: 0, map, col, R: map.R, events: [], proj: [], gifts: [], rollers: [], vortex: [], zones: [], bolts: [], rollT: 4, sweepA: 0, giftT: C.GIFT_FIRST, over: false, winner: null, sudden: false,
+    t: 0, map, col, R: map.R, events: [], proj: [], drops: [], dropN: 0, gifts: [], rollers: [], vortex: [], zones: [], bolts: [], rollT: 4, sweepA: 0, giftT: C.GIFT_FIRST, over: false, winner: null, sudden: false,
     blobs: players.map((p, i) => {
       const a = (i / n) * Math.PI * 2 + Math.PI / 4;
       const r = map.R * 0.62;
@@ -46,7 +61,7 @@ export function createSim(players, map) {
         face: Math.atan2(-x, -z), hp: C.HP, alive: true, falling: false, air: false,
         w: WMAP[p.weapon] || WMAP.mallet, ch: CMAP[p.char] || CMAP.berry, sk: 30, skillT: 0, slowT: 0, shieldT: 0, rushT: 0, rushHit: null, fizz: false, prevSkill: false, atkT: -1, fired: false, atkCd: 0.3, dashT: 0, dashCd: 0, stun: 0, padCd: 0, inv: 0,
         input: { mx: 0, mz: 0, ax: 0, az: 0, aim: false, atk: false, dash: false, skill: false }, prevDash: false,
-        kos: 0, dmgDealt: 0, lastHitBy: null, lastHitT: -99, buff: { speed: 0, power: 0, giant: 0 }, stk: { speed: 0, power: 0, giant: 0 },
+        kos: 0, dmgDealt: 0, m: 1, cidx: Math.max(0, CHARS.findIndex((c) => c.id === p.char)), lastHitBy: null, lastHitT: -99, buff: { speed: 0, power: 0, giant: 0 }, stk: { speed: 0, power: 0, giant: 0 },
       };
     }),
   };
@@ -72,14 +87,14 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   if (o.dummy) { o.hp = C.HP + dmg; o.dummyT = 0; }   // the sandbag soaks everything
   const tutK = !s.tut ? 1 : botVsBot ? 0.25 : botVsYou ? (s.tutPhase === 'final' ? 0.8 : 0.2) : a?.human ? 1.25 : 1;
   if (botVsBot && o.hp - dmg * tutK < 25) return;
-  const d = dmg * pw * sd * sh * syn * (crit ? 1.6 : 1) * tutK;
+  const d = dmg * pw * sd * sh * syn * (crit ? 1.6 : 1) * tutK * (a && a !== o ? mDmg(a) : 1);
   if (o.novaGuardT > 0 && a && a !== o && wpn && Math.hypot(a.x - o.x, a.z - o.z) < 3.4) { const m = RARITY[o.ch.rarity].mul; damage(s, o, a, 4.5 * m, a.x - o.x, a.z - o.z, 8, 0.25, 'thorn'); s.events.push({ type: 'novaZap', b: o.id, a: a.id, x: a.x, z: a.z }); }   // Star Guard zaps whoever punches it
   o.hp -= d;
   o.sk = Math.min(100, o.sk + d * 0.42 * (100 / (o.ch.skill.charge || 100)));
   if (a) { a.dmgDealt += d; o.lastHitBy = a.id; o.lastHitT = s.t; a.sk = Math.min(100, a.sk + d * 0.72 * (100 / (a.ch.skill.charge || 100))); }
   const low = 1 + (1 - Math.max(0, o.hp) / C.HP) * 0.8; // battered jellies fly further (capped)
   const res = (o.buff.giant > 0 ? 0.55 - 0.07 * (STK(o, 'giant') - 1) : 1) * (o.novaGuardT > 0 ? 0.35 : 1) * (o.shieldT > 0 ? 0.15 : 1) * (o.armorT > 0 ? 0.25 : 1);
-  const k = kb * low * res * (a && a.buff.power > 0 ? 1.3 : 1) * (a && a.buff.giant > 0 ? 1.25 + 0.1 * (STK(a, 'giant') - 1) : 1) * (s.sudden ? 1.25 : 1);
+  const k = kb * low * res * (a && a.buff.power > 0 ? 1.3 : 1) * (a && a.buff.giant > 0 ? 1.25 + 0.1 * (STK(a, 'giant') - 1) : 1) * (s.sudden ? 1.25 : 1) * (a && a !== o ? mKbOut(a) : 1) * mKbIn(o);
   const fair = a && a.human && !o.human ? 1.2 : 1;   // humans hit bots a bit harder: crunchier, more satisfying
   const l = Math.hypot(dx, dz) || 1;
   const tk = botVsBot || (botVsYou && s.tutPhase !== 'final') ? 0.35 : 1;
@@ -90,11 +105,13 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
   if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
   if (a && o.alive && kind !== 'skill' && kind !== 'hazard' && kind !== 'boom') weaponPerk(s, a, o, kind);
+  if (a && a !== o && !o.dummy && !botVsBot) { const loss = Math.min(MS(o) - MASS.MIN, d * MASS.LOSS * (0.75 + 0.25 * MS(o)) * (o.growT > 0 ? 0 : 1), MASS.HIT_CAP); if (loss > 0.004) { o.m = MS(o) - loss; dropJelly(s, o, loss, dx, dz); } }
   s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit, mochi: !!mochiCrit || undefined, combo: combo || undefined });
   if (o.hp <= 0) {
     o.alive = false; o.hp = 0;
     if (a) { a.kos++; if (kind !== 'skill' && kind !== 'hazard') weaponKill(s, a); }
     s.events.push({ type: 'splat', b: o.id, by: a?.id ?? null, x: o.x, z: o.z });
+    if (!o.dummy && !s.tut) dropJelly(s, o, Math.max(0.3, MS(o) * 0.6), dx, dz, true);   // a melted jelly bursts into beads for the survivors
   }
 }
 
@@ -174,7 +191,7 @@ export function blockedLine(s, x0, z0, x1, z1) {
 }
 
 const STK = (b, k) => (b.buff[k] > 0 ? Math.min(3, Math.max(1, b.stk?.[k] || 1)) : 0);   // pickup stacks (1..3) while the buff is up
-const GS = (b) => b.buff.giant > 0 ? (b.rageT > 0 ? 2.0 : 1.5) * (1 + 0.14 * (STK(b, 'giant') - 1)) : 1;   // size of every attack: melee reach, AoE, bullets
+const GS = (b) => (b.buff.giant > 0 ? (b.rageT > 0 ? 2.0 : 1.5) * (1 + 0.14 * (STK(b, 'giant') - 1)) : 1) * mReach(b);   // size of every attack: melee reach, AoE, bullets
 const vOK = (a, o, lim = 1.05) => Math.abs((o.y || 0) - (a.y || 0)) < lim;
 function fire(s, b) {
   const wm = RARITY[b.w.rarity || 'common'].mul * 0.5 + 0.5;
@@ -281,7 +298,7 @@ function freeSpotSim(s) {
 export function step(s, dt) {
   if (s.over) return;
   s.t += dt;
-  if (!s.sudden && s.t >= C.SUDDEN) { s.sudden = true; s.events.push({ type: 'sudden' }); }
+  if (!s.sudden && !s.tut && s.t >= C.SUDDEN) { s.sudden = true; s.events.push({ type: 'sudden' }); }
   // sudden death: the cake shrinks toward the middle; fences tumble off first, then any structure the edge reaches slides into the sea
   if (s.sudden && !s.map.noShrink) {
     const k = Math.min(1, (s.t - C.SUDDEN) / 22), R0 = s.map.R, R1 = Math.max(5.6, R0 * 0.55);
@@ -297,7 +314,7 @@ export function step(s, dt) {
   for (const b of live) {
     for (const k in b.buff) b.buff[k] = Math.max(0, b.buff[k] - dt);
     b.rageT = Math.max(0, (b.rageT || 0) - dt); if (b.buff.giant <= 0) b.rageT = 0;
-    b.r = C.R_BODY * (b.rageT > 0 ? 1.9 : b.buff.giant > 0 ? 1.35 : 1) * (1 + 0.1 * Math.max(0, STK(b, 'giant') - 1)); for (const k in b.stk) if (!(b.buff[k] > 0)) b.stk[k] = 0;
+    b.r = C.R_BODY * (b.rageT > 0 ? 1.9 : b.buff.giant > 0 ? 1.35 : 1) * (1 + 0.1 * Math.max(0, STK(b, 'giant') - 1)) * (0.82 + 0.18 * MS(b)); for (const k in b.stk) if (!(b.buff[k] > 0)) b.stk[k] = 0;
     if (b.comboT > 0) b.comboT -= dt;
     if (b.grapeT > 0) { b.grapeT -= dt; if (b.grapeT <= 0) grapePop(s, b); }
     b.novaGuardT = Math.max(0, (b.novaGuardT || 0) - dt); if (b.ghostT > 0) b.ghostT -= dt; if (b.frozenT > 0) b.frozenT -= dt; if (b.stormT > 0) b.stormT -= dt; if (b.pudT > 0) b.pudT -= dt;
@@ -333,7 +350,7 @@ export function step(s, dt) {
     let mx = inp.mx, mz = inp.mz; const ml = Math.hypot(mx, mz);
     if (ml > 1) { mx /= ml; mz /= ml; }
     const control = b.stun > 0 ? 0.15 : b.atkT >= 0 ? 0.5 : 1;
-    const spd = C.SPEED * (b.buff.speed > 0 ? 1.45 + 0.12 * (STK(b, 'speed') - 1) : 1) * (b.buff.giant > 0 ? 0.85 : 1) * (b.slowT > 0 && !(b.pudT > 0) ? 0.55 : 1) * (b.pudT > 0 ? 1.3 : 1) * (b.ghostT > 0 ? 1.35 : 1);
+    const spd = C.SPEED * mSpd(b) * (b.buff.speed > 0 ? 1.45 + 0.12 * (STK(b, 'speed') - 1) : 1) * (b.buff.giant > 0 ? 0.85 : 1) * (b.slowT > 0 && !(b.pudT > 0) ? 0.55 : 1) * (b.pudT > 0 ? 1.3 : 1) * (b.ghostT > 0 ? 1.35 : 1);
     const damp = (b.stun > 0 || b.dashT > 0 || b.air || b.rushT > 0 ? C.STUN_DAMP * (b.rushT > 0 ? 0.3 : 1) : C.DAMP) * (s.map.ice && !b.air ? 0.45 : 1);
     const ac = b.air ? 0.6 : 1; b.vx += mx * spd * damp * control * ac * dt; b.vz += mz * spd * damp * control * ac * dt;
     b.vx *= Math.exp(-damp * dt); b.vz *= Math.exp(-damp * dt);
@@ -485,6 +502,18 @@ export function step(s, dt) {
     }
   }
   s.gifts = s.gifts.filter((g) => !g.taken);
+  // jelly drops: hop, settle, then whoever touches one slurps it up and grows
+  for (const g of s.drops) {
+    g.t += dt; g.vy -= 22 * dt; g.x += g.vx * dt; g.z += g.vz * dt; g.y += g.vy * dt;
+    if (g.y <= 0.18) { g.y = 0.18; if (g.vy < -2) g.vy *= -0.35; else g.vy = 0; g.vx *= 0.82; g.vz *= 0.82; }
+    if (Math.hypot(g.x, g.z) > s.R + 0.3) { g.gone = true; continue; }
+    if (g.t < MASS.EAT_DELAY) continue;
+    for (const b of s.blobs) { if (!b.alive || b.falling || (b.id === g.src && g.t < 1.6) || (s.tut && !b.human)) continue;
+      if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.42) { const before = MS(b); b.m = Math.min(MASS.MAX, before + g.v); b.growT = 5; if (!s.sudden && s.t < 35) b.hp = Math.min(C.HP, b.hp + g.v * 90); g.gone = true; s.events.push({ type: 'eat', b: b.id, x: g.x, z: g.z, m: Math.round(b.m * 100) / 100, gain: Math.round((b.m - before) * 100) }); break; } }
+    if (g.t > MASS.LIFE && !s.tut) g.gone = true;   // tutorial beads wait for you
+  }
+  s.drops = s.drops.filter((g) => !g.gone);
+  for (const b of s.blobs) if (b.growT > 0) b.growT -= dt;   // freshly grown jelly is 'set' for a moment: hits barely shrink it
 
   // boba barrage: spiral of pearls
   for (const b of live) if (b.bobaT > 0) {

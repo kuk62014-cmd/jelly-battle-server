@@ -11,7 +11,7 @@ import { MAPS, scaleMap } from '../src/maps-data.js';
 import { WEAPONS } from '../src/weapons-data.js';
 import { CHARS } from '../src/chars-data.js';
 
-const PORT = Number(process.env.PORT || 8787), ADMIN = process.env.ADMIN_CODE || '1695', DB = process.env.DB_FILE || new URL('./players.json', import.meta.url).pathname;
+const PORT = Number(process.env.PORT || 8787), ADMIN = process.env.ADMIN_CODE || '', DB = process.env.DB_FILE || new URL('./players.json', import.meta.url).pathname;
 const TICK = 1 / 30, FILL_WAIT = 2.6, MAX_ROUNDS = 5;
 const BOT_NAMES = ['Gumdrop', 'Sir Wobble', 'Captain Gummy', 'Lady Pudding', 'Boba Bop', 'Mochi Max', 'Jellybean Jo', 'Sprinkles', 'Marshmallow', 'Taffy Tim', 'Cupcake Kid', 'Fudge Fox'];
 const db = (() => { try { return JSON.parse(fs.readFileSync(DB, 'utf8')); } catch { return { players: {}, banned: [], admins: [] }; } })();
@@ -49,7 +49,7 @@ function startRound(r) {
   r.phase = 'intro'; r.t = r.round === 1 ? 3.6 : 1.8;
   for (const s of r.seats) if (s.human) send(s.human, { t: 'phase', phase: 'intro', round: r.round, cd: r.t });
 }
-const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT', 'rageT', 'novaGuardT', 'healT', 'cineT', 'pudT', 'burnT', 'ghostT', 'grapeN', 'grapeT', 'comboT', 'frozenT', 'stormT'];
+const PICK = ['id', 'x', 'y', 'z', 'vx', 'vy', 'vz', 'face', 'hp', 'alive', 'falling', 'air', 'stun', 'sk', 'skillT', 'shieldT', 'rushT', 'dashT', 'armorT', 'kos', 'nova', 'novaDive', 'slowT', 'lastHitBy', 'bobaT', 'acidT', 'rageT', 'novaGuardT', 'healT', 'cineT', 'pudT', 'burnT', 'ghostT', 'grapeN', 'grapeT', 'comboT', 'frozenT', 'stormT', 'm'];
 const r2 = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 function uid(o) { if (!o.uid) o.uid = uidN++; return o.uid; }
 function snapshot(r, k) {
@@ -59,7 +59,7 @@ function snapshot(r, k) {
   return { t: 's', st: r2(s.t), sudden: s.sudden, R: r2(s.R), sweepA: r2(s.sweepA), blobs,
     proj: (s.proj || []).map((p) => ({ uid: uid(p), x: r2(p.x), y: r2(p.y), z: r2(p.z), vx: r2(p.vx), vz: r2(p.vz), lob: p.lob, boom: p.boom, w: p.w.id, owner: sw(p.owner), sc: p.sc && p.sc !== 1 ? r2(p.sc) : undefined })),
     rollers: sub(s.rollers, ['x', 'y', 'z', 'vx', 'vz', 'r', 'rot', 'falling']), zones: sub(s.zones, ['x', 'z', 'r', 't', 'life', 'gum']), vortex: sub(s.vortex, ['x', 'z', 't', 'life', 'cine', 'meteor']),
-    gifts: sub(s.gifts, ['id', 'x', 'z', 'kind', 'y', 't']),
+    gifts: sub(s.gifts, ['id', 'x', 'z', 'kind', 'y', 't']), drops: sub(s.drops, ['x', 'y', 'z', 't', 'cid', 'v']),
     ev: s.events.map((e) => { const o = { ...e }; for (const f of ['b', 'a', 'by', 'winner']) if (o[f] != null) o[f] = sw(o[f]); return o; }) };
 }
 function tickRoom(r, dt) {
@@ -107,7 +107,7 @@ const server = http.createServer((req, res) => {
   const u = new URL(req.url, 'http://x'), json = (o, code = 200) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
   if (u.pathname === '/health') return json({ ok: true, rooms: rooms.size, online: clients.size });
   if (u.pathname.startsWith('/api/')) {
-    if (req.headers['x-admin'] !== ADMIN) return json({ error: 'forbidden' }, 403);
+    if (!ADMIN || req.headers['x-admin'] !== ADMIN) return json({ error: 'forbidden' }, 403);
     if (u.pathname === '/api/players') return json({ online: clients.size, rooms: rooms.size, players: Object.values(db.players).sort((a, b) => b.trophies - a.trophies).slice(0, 500), banned: db.banned, admins: db.admins });
     let body = ''; req.on('data', (d) => (body += d)); req.on('end', () => { let b = {}; try { b = JSON.parse(body || '{}'); } catch { /* bad json */ }
       const n = clean(b.name);
