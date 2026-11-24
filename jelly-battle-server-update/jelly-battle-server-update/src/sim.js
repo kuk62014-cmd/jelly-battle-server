@@ -24,10 +24,14 @@ function weaponKill(s, a) { if (!a || !a.alive || a.falling) return;
   else if (a.w.id === 'thunder') { a.stormT = 20; s.events.push({ type: 'storm', b: a.id }); } }
 // ---------- JELLY MASS: hits knock jelly off you, eat it to grow ----------
 // bigger = harder hits, longer reach, shrugs off knockback, but slower. smaller = quicker, but light: hits less and flies further.
-export const MASS = { MIN: 0.65, MAX: 1.8, LOSS: 0.0022, HIT_CAP: 0.045, LIFE: 9, EAT_DELAY: 0.6 };
+export const MASS = { MIN: 0.65, MAX: 99, LOSS: 0.0022, HIT_CAP: 0.045, LIFE: 9, EAT_DELAY: 0.6 };
 const MS = (b) => (b && b.m) || 1;
-export const massVis = (m) => 0.6 + 0.4 * (m || 1);   // body scale (also used by the renderer)
-const mReach = (b) => 0.84 + 0.16 * MS(b), mDmg = (b) => 0.8 + 0.2 * MS(b), mSpd = (b) => 1.2 - 0.2 * MS(b), mKbOut = (b) => 0.74 + 0.26 * MS(b), mKbIn = (b) => 1.38 - 0.38 * MS(b);
+// no size cap: power uses a log curve, so each extra bite still matters but a huge jelly never becomes untouchable
+export const massEff = (m) => { m = m || 1; return m <= 1 ? m : 1 + Math.log(m) * 0.9; };
+export const maxHpOf = (b) => Math.round(C.HP * (0.7 + 0.3 * massEff(MS(b))));
+const ME = (b) => massEff(MS(b));
+export const massVis = (m) => { const e = massEff(m); return e <= 1 ? 0.55 + 0.45 * e : 1 + (e - 1) * 0.9; };   // body scale (also used by the renderer)
+const mReach = (b) => 0.8 + 0.2 * ME(b), mDmg = (b) => 0.7 + 0.3 * ME(b), mSpd = (b) => Math.max(0.62, 1.25 - 0.25 * ME(b)), mKbOut = (b) => 0.65 + 0.35 * ME(b), mKbIn = (b) => Math.max(0.4, 1.45 - 0.45 * ME(b));
 function dropJelly(s, o, amt, dx, dz, burst = false) {   // hit: beads squirt back toward the hitter (your reward); KO: they spray all around
   const n = Math.max(burst ? 6 : 2, Math.min(burst ? 14 : 6, Math.round(amt / 0.02))), l = Math.hypot(dx, dz) || 1;   // always a visible handful
   for (let i = 0; i < n; i++) { const a = burst ? (i / n) * Math.PI * 2 + Math.random() * 0.5 : Math.atan2(-dz / l, -dx / l) + (Math.random() - 0.5) * 2.0, v = burst ? 3.5 + Math.random() * 3.5 : 3.6 + Math.random() * 2.4;
@@ -92,7 +96,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.hp -= d;
   o.sk = Math.min(100, o.sk + d * 0.42 * (100 / (o.ch.skill.charge || 100)));
   if (a) { a.dmgDealt += d; o.lastHitBy = a.id; o.lastHitT = s.t; a.sk = Math.min(100, a.sk + d * 0.72 * (100 / (a.ch.skill.charge || 100))); }
-  const low = 1 + (1 - Math.max(0, o.hp) / C.HP) * 0.8; // battered jellies fly further (capped)
+  const low = 1 + (1 - Math.max(0, o.hp) / maxHpOf(o)) * 0.8; // battered jellies fly further (capped)
   const res = (o.buff.giant > 0 ? 0.55 - 0.07 * (STK(o, 'giant') - 1) : 1) * (o.novaGuardT > 0 ? 0.35 : 1) * (o.shieldT > 0 ? 0.15 : 1) * (o.armorT > 0 ? 0.25 : 1);
   const k = kb * low * res * (a && a.buff.power > 0 ? 1.3 : 1) * (a && a.buff.giant > 0 ? 1.25 + 0.1 * (STK(a, 'giant') - 1) : 1) * (s.sudden ? 1.25 : 1) * (a && a !== o ? mKbOut(a) : 1) * mKbIn(o);
   const fair = a && a.human && !o.human ? 1.2 : 1;   // humans hit bots a bit harder: crunchier, more satisfying
@@ -105,7 +109,7 @@ function damage(s, a, o, dmg, dx, dz, kb, stun, kind) {
   o.inv = Math.max(o.inv, 0.14);                                                  // brief hit protection: no stun-lock chains
   if (o.dummy) { o.vx = o.vz = 0; o.vy = 0; o.air = false; o.stun = 0; o.inv = 0.06; }   // a sandbag: it wobbles, it never slides
   if (a && o.alive && kind !== 'skill' && kind !== 'hazard' && kind !== 'boom') weaponPerk(s, a, o, kind);
-  if (a && a !== o && !o.dummy && !botVsBot) { const loss = Math.min(MS(o) - MASS.MIN, d * MASS.LOSS * (0.75 + 0.25 * MS(o)) * (o.growT > 0 ? 0 : 1), MASS.HIT_CAP); if (loss > 0.004) { o.m = MS(o) - loss; dropJelly(s, o, loss, dx, dz); } }
+  if (a && a !== o && kind !== 'hazard' && !o.dummy && !botVsBot) { const loss = Math.min(MS(o) - MASS.MIN, d * MASS.LOSS * (0.75 + 0.25 * MS(o)) * (o.growT > 0 ? 0 : 1), MASS.HIT_CAP); if (loss > 0.004) { o.m = MS(o) - loss; dropJelly(s, o, loss, dx, dz); } }
   s.events.push({ type: 'hit', a: a?.id, b: o.id, x: o.x, z: o.z, dx: dx / l, dz: dz / l, dmg: Math.round(d), kind, big: k > 11 || crit, crit, mochi: !!mochiCrit || undefined, combo: combo || undefined });
   if (o.hp <= 0) {
     o.alive = false; o.hp = 0;
@@ -314,11 +318,11 @@ export function step(s, dt) {
   for (const b of live) {
     for (const k in b.buff) b.buff[k] = Math.max(0, b.buff[k] - dt);
     b.rageT = Math.max(0, (b.rageT || 0) - dt); if (b.buff.giant <= 0) b.rageT = 0;
-    b.r = C.R_BODY * (b.rageT > 0 ? 1.9 : b.buff.giant > 0 ? 1.35 : 1) * (1 + 0.1 * Math.max(0, STK(b, 'giant') - 1)) * (0.82 + 0.18 * MS(b)); for (const k in b.stk) if (!(b.buff[k] > 0)) b.stk[k] = 0;
+    b.r = C.R_BODY * (b.rageT > 0 ? 1.9 : b.buff.giant > 0 ? 1.35 : 1) * (1 + 0.1 * Math.max(0, STK(b, 'giant') - 1)) * (ME(b) <= 1 ? 0.78 + 0.22 * ME(b) : 1 + (ME(b) - 1) * 0.5); for (const k in b.stk) if (!(b.buff[k] > 0)) b.stk[k] = 0;
     if (b.comboT > 0) b.comboT -= dt;
     if (b.grapeT > 0) { b.grapeT -= dt; if (b.grapeT <= 0) grapePop(s, b); }
     b.novaGuardT = Math.max(0, (b.novaGuardT || 0) - dt); if (b.ghostT > 0) b.ghostT -= dt; if (b.frozenT > 0) b.frozenT -= dt; if (b.stormT > 0) b.stormT -= dt; if (b.pudT > 0) b.pudT -= dt;
-    if (b.healT > 0) { const h = Math.min(b.healLeft, C.HP * 0.3 / 5 * dt); b.healT -= dt; b.healLeft -= h; b.hp = Math.min(C.HP, b.hp + h); }
+    if (b.healT > 0) { const h = Math.min(b.healLeft, C.HP * 0.3 / 5 * dt); b.healT -= dt; b.healLeft -= h; b.hp = Math.min(maxHpOf(b), b.hp + h); }
     b.atkCd -= dt; b.dashCd -= dt; b.stun -= dt; b.padCd -= dt; b.inv -= dt; b.jumpCd = (b.jumpCd || 0) - dt; b.armorT = (b.armorT || 0) - dt; b.slowT -= dt; b.shieldT -= dt; b.skillT -= dt;
     if (b.burnT > 0 && !b.falling) {   // meteor burn: fire bites every 0.4 s
       b.burnT -= dt; b.burnTick -= dt;
@@ -496,7 +500,7 @@ export function step(s, dt) {
       if (b.falling || !b.alive || g.taken) continue;
       if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.5) {
         g.taken = true;
-        if (g.kind === 'heal') b.hp = Math.min(C.HP, b.hp + 35); else { const had = b.buff[g.kind] > 0; b.buff[g.kind] = Math.min(C.BUFF_T * 2, (had ? b.buff[g.kind] : 0) + C.BUFF_T); b.stk[g.kind] = had ? Math.min(3, (b.stk[g.kind] || 1) + 1) : 1; }   // pickups STACK: longer + stronger, up to x3
+        if (g.kind === 'heal') b.hp = Math.min(maxHpOf(b), b.hp + 35); else { const had = b.buff[g.kind] > 0; b.buff[g.kind] = Math.min(C.BUFF_T * 2, (had ? b.buff[g.kind] : 0) + C.BUFF_T); b.stk[g.kind] = had ? Math.min(3, (b.stk[g.kind] || 1) + 1) : 1; }   // pickups STACK: longer + stronger, up to x3
         s.events.push({ type: 'gift', b: b.id, kind: g.kind, x: g.x, z: g.z, n: b.stk[g.kind] || 0 });
       }
     }
@@ -506,10 +510,16 @@ export function step(s, dt) {
   for (const g of s.drops) {
     g.t += dt; g.vy -= 22 * dt; g.x += g.vx * dt; g.z += g.vz * dt; g.y += g.vy * dt;
     if (g.y <= 0.18) { g.y = 0.18; if (g.vy < -2) g.vy *= -0.35; else g.vy = 0; g.vx *= 0.82; g.vz *= 0.82; }
+    if (g.y < 1.4 && s.col) collideStatic(s, g, 0.22);
+    const hz = s.map.hazard;
+    if (hz?.type === 'sweeper' && g.y < 1.2) { const ux = Math.cos(s.sweepA), uz = Math.sin(s.sweepA), tx = -uz, tz = ux, al = g.x * ux + g.z * uz, pp = g.x * tx + g.z * tz, sg = Math.sign(hz.speed) || 1;
+      if (al > hz.r0 - 0.2 && al < hz.r1 + 0.2 && Math.abs(pp) < 0.45 && pp * sg < 0.2) { const sp = Math.abs(hz.speed) * al + 2; g.x += tx * sg * (0.45 - Math.abs(pp)); g.z += tz * sg * (0.45 - Math.abs(pp)); g.vx = tx * sg * sp + ux * 1.5; g.vz = tz * sg * sp + uz * 1.5; g.vy = Math.max(g.vy, 3.5); } }   // swept beads get flung along the arm
+    for (const r of s.rollers || []) { if (!r.alive) continue; const dx = g.x - r.x, dz = g.z - r.z, d = Math.hypot(dx, dz), m = (r.r || 1) + 0.22;
+      if (d < m && d > 1e-3 && g.y < (r.y ?? 0) + (r.r || 1) + 0.3) { g.x = r.x + dx / d * m; g.z = r.z + dz / d * m; g.vx = dx / d * 6 + r.vx * 0.8; g.vz = dz / d * 6 + r.vz * 0.8; g.vy = 4; } }   // beads bounce off props instead of sinking into them
     if (Math.hypot(g.x, g.z) > s.R + 0.3) { g.gone = true; continue; }
     if (g.t < MASS.EAT_DELAY) continue;
     for (const b of s.blobs) { if (!b.alive || b.falling || (b.id === g.src && g.t < 1.6) || (s.tut && !b.human)) continue;
-      if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.42) { const before = MS(b); b.m = Math.min(MASS.MAX, before + g.v); b.growT = 5; if (!s.sudden && s.t < 35) b.hp = Math.min(C.HP, b.hp + g.v * 90); g.gone = true; s.events.push({ type: 'eat', b: b.id, x: g.x, z: g.z, m: Math.round(b.m * 100) / 100, gain: Math.round((b.m - before) * 100) }); break; } }
+      if (Math.hypot(b.x - g.x, b.z - g.z) < b.r + 0.42) { const before = MS(b); const hp0 = maxHpOf(b); b.m = Math.min(MASS.MAX, before + g.v * 1.9); b.growT = 5; b.hp += maxHpOf(b) - hp0; if (!s.sudden && s.t < 35) b.hp = Math.min(maxHpOf(b), b.hp + g.v * 120); g.gone = true; s.events.push({ type: 'eat', b: b.id, x: g.x, z: g.z, m: Math.round(b.m * 100) / 100, gain: Math.round((b.m - before) * 100) }); break; } }
     if (g.t > MASS.LIFE && !s.tut) g.gone = true;   // tutorial beads wait for you
   }
   s.drops = s.drops.filter((g) => !g.gone);
